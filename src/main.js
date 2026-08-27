@@ -11,6 +11,7 @@ import { CONFIG } from './core/config.js';
 import { NORTH_IN_GRID } from './core/geo.js';
 import { Stage } from './render/stage.js';
 import { ChunkManager } from './render/chunks.js';
+import { buildChunk } from './render/scenery.js';
 import { TouchCamera } from './camera/controls.js';
 import { LotView, Ghost, LotOverlay, BorderOverlay } from './render/lotview.js';
 import { GameState, migrate } from './game/save.js';
@@ -233,6 +234,7 @@ class App {
     window.__roof = { roofSpanGeometry, ROOF_STYLES, ROOF_STYLE_NAMES };
     window.__world = { lotGrid, nearestSlot, slotKey, slotValid, slotTransform, slotsAlong, parseSlot, obbOverlap, spanValid, spanTransform };
     window.__save = { migrate };
+    window.__scenery = { buildChunk };
     window.__ready = true;
   }
 

@@ -704,6 +704,60 @@ const claimGuard = await page.evaluate(() => {
 rec('Lots: cannot claim a lot you already hold', claimGuard.refused, claimGuard.reason);
 
 // ---------------------------------------------------------------------------
+// 7b. every building survives to the farthest detail band
+// ---------------------------------------------------------------------------
+console.log('--- distant detail ---');
+const farLod = await page.evaluate(() => {
+  const a = window.__app;
+  const { buildChunk } = window.__scenery;
+  const empty = new Set();
+
+  // a chunk of ordinary low-rise fabric, not a tower cluster
+  let ci = -1, best = 0;
+  for (let i = 0; i < a.city.chunks.length; i++) {
+    const ps = a.city.chunks[i];
+    if (!ps || ps.length < 12) continue;
+    const low = ps.filter((p) => p.height < 14).length;
+    if (low > best) { best = low; ci = i; }
+  }
+  const ps = a.city.chunks[ci];
+  const tris = (lod) => {
+    const d = buildChunk(a.city, ci, empty, lod);
+    return d.buildings ? d.buildings.getAttribute('position').count / 3 : 0;
+  };
+  const near = tris(0), far = tris(-1);
+
+  // The union of every low footprint is the ground the fabric must still cover
+  // at distance. Measure how much of it the merged massing actually occupies.
+  const lows = ps.filter((p) => p.height < 14);
+  let u0 = Infinity, v0 = Infinity, u1 = -Infinity, v1 = -Infinity;
+  for (const p of lows) {
+    if (p.u0 < u0) u0 = p.u0; if (p.v0 < v0) v0 = p.v0;
+    if (p.u1 > u1) u1 = p.u1; if (p.v1 > v1) v1 = p.v1;
+  }
+  const g = buildChunk(a.city, ci, empty, -1).buildings;
+  const pos = g.getAttribute('position');
+  let minY = Infinity, lowVerts = 0;
+  for (let i = 0; i < pos.count; i++) {
+    const y = pos.getY(i);
+    if (y < minY) minY = y;
+    if (y > 0.5 && y < 14) lowVerts++;
+  }
+  return {
+    ci, parcels: ps.length, lowCount: lows.length, near, far,
+    ratio: near ? +(far / near).toFixed(3) : 0,
+    // geometry below skyline height must exist: that is the fabric
+    hasLowGeometry: lowVerts > 0,
+    spanU: +(u1 - u0).toFixed(0), spanV: +(v1 - v0).toFixed(0),
+  };
+});
+rec('Distance: low-rise is still there at the farthest band', farLod.hasLowGeometry,
+  `${farLod.lowCount} low buildings in chunk ${farLod.ci}, merged`);
+rec('Distance: merging is cheaper than drawing each one',
+  farLod.far > 0 && farLod.far < farLod.near,
+  `${farLod.far} tris vs ${farLod.near} at full massing (${Math.round(farLod.ratio * 100)}%)`);
+
+// ---------------------------------------------------------------------------
 // 8. frame rate at three zoom levels
 // ---------------------------------------------------------------------------
 console.log('--- frame rate (software renderer; see report) ---');

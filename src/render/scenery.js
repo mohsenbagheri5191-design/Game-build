@@ -98,10 +98,6 @@ export function addBuilding(mb, p, lod) {
   mb.push();
   mb.translate(cx, 0, cz);
 
-  // Beyond the far band only the skyline is readable, so anything that is not
-  // part of it is dropped rather than drawn at four pixels tall.
-  if (lod < 0 && h < 14) { mb.pop(); return; }
-
   // Far chunks: silhouette only. The skyline still reads correctly because the
   // heights and footprints are the real ones — only the trim is gone.
   if (lod <= 0) {
@@ -767,6 +763,71 @@ function push(out, kind, u, v, r) {
 }
 
 // ---------------------------------------------------------------------------
+// LOW-RISE MASSING AT DISTANCE
+// ---------------------------------------------------------------------------
+/** Above this a building is part of the skyline and is drawn on its own. */
+const LOWRISE_H = 14;
+/** Bin size for merging, about a quarter block. */
+const CARPET = 46;
+
+/**
+ * Low buildings, merged, for the farthest band.
+ *
+ * These used to be dropped outright past ~1.5 km. That bought the triangle
+ * budget but it cost the city: the low-rise fabric is most of Toronto, and
+ * without it the overview is a handful of towers standing in an empty field,
+ * with a visible edge where the fabric stops.
+ *
+ * So they are merged instead of dropped. Buildings are binned into quarter-block
+ * cells; each occupied cell becomes one box spanning the union of its
+ * footprints, at the area-weighted mean height. At that distance a block of
+ * houses covers a few pixels and reads as one mass anyway, which is exactly
+ * what this draws — for roughly an eighth of the triangles the individual
+ * boxes cost. Every building is still represented. None is invented: an empty
+ * cell stays empty, so parks, yards and the rail corridor still read as gaps.
+ */
+function addLowRiseCarpet(mb, parcels, demolished, origin) {
+  const bins = new Map();
+  for (const p of parcels) {
+    if (demolished.has(p.id) || p.height >= LOWRISE_H) continue;
+    const f = footprintFor(p);
+    const w = f.u1 - f.u0, d = f.v1 - f.v0;
+    if (w < 1 || d < 1) continue;
+    const bu = Math.floor((f.u0 + w / 2 - origin.u) / CARPET);
+    const bv = Math.floor((f.v0 + d / 2 - origin.v) / CARPET);
+    const bk = bv * 64 + bu;
+    let b = bins.get(bk);
+    if (!b) {
+      b = { u0: f.u0, v0: f.v0, u1: f.u1, v1: f.v1, wh: 0, a: 0, bu, bv };
+      bins.set(bk, b);
+    } else {
+      if (f.u0 < b.u0) b.u0 = f.u0;
+      if (f.v0 < b.v0) b.v0 = f.v0;
+      if (f.u1 > b.u1) b.u1 = f.u1;
+      if (f.v1 > b.v1) b.v1 = f.v1;
+    }
+    const a = w * d;
+    b.a += a;
+    b.wh += a * p.height;
+  }
+
+  for (const b of bins.values()) {
+    const w = b.u1 - b.u0, d = b.v1 - b.v0;
+    if (w < 1 || d < 1 || b.a <= 0) continue;
+    // The union of scattered footprints is wider than the buildings in it, so
+    // trimming toward the covered area keeps the carpet from looking solid.
+    const cover = Math.min(1, b.a / (w * d));
+    const k = 0.55 + cover * 0.45;
+    const h = Math.max(3.5, b.wh / b.a);
+    mb.objectOf(R(b.bu, b.bv, 23), R(b.bu, b.bv, 29));
+    mb.push();
+    mb.translate((b.u0 + b.u1) / 2, 0, -(b.v0 + b.v1) / 2);
+    mb.box(w * k, h, d * k);
+    mb.pop();
+  }
+}
+
+// ---------------------------------------------------------------------------
 export function buildChunk(city, ci, demolished, lod) {
   const mb = new MeshBuilder();
   const o = city.chunkOrigin(ci);
@@ -774,13 +835,19 @@ export function buildChunk(city, ci, demolished, lod) {
 
   for (const p of city.chunks[ci]) {
     if (demolished.has(p.id)) continue;
+    // At the farthest band the low-rise is merged into one mass per quarter
+    // block rather than drawn building by building — see addLowRiseCarpet.
+    if (lod < 0 && p.height < LOWRISE_H) continue;
     addBuilding(mb, p, lod);
   }
+  if (lod < 0) addLowRiseCarpet(mb, city.chunks[ci], demolished, o);
+
   for (const l of city.landmarks) {
     const cu = (l.u0 + l.u1) / 2, cv = (l.v0 + l.v1) / 2;
     if (cu < o.u || cu >= o.u + cs || cv < o.v || cv >= o.v + cs) continue;
     if (demolished.has(l.id)) continue;
-    if (lod < 0 && l.height < 20) continue;
+    // Landmarks are named places a player goes looking for, and there are only
+    // 65 of them in the whole city — never worth culling for triangles.
     addLandmark(mb, l, Math.max(1, lod));
   }
 
