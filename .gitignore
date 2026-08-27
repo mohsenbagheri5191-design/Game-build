@@ -1,0 +1,7 @@
+node_modules/
+data/osm-fixture.json
+data/toronto-osm.json
+dist/dev.html
+dist/parts.html
+dist/acceptance/
+*.log

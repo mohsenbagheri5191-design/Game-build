@@ -1,0 +1,20 @@
+{
+  "built": {
+    "count": 172,
+    "parts": 171,
+    "lot": {
+      "u0": -1757.5,
+      "v0": 460,
+      "u1": -1738,
+      "v1": 490
+    },
+    "address": "1128 Adelaide St W",
+    "cols": 7,
+    "rows": 12,
+    "side": 1,
+    "credits": 206680,
+    "level": 30,
+    "xp": 401992
+  },
+  "errors": []
+}

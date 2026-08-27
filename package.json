@@ -1,0 +1,32 @@
+{
+  "name": "toronto-builder",
+  "version": "1.0.0",
+  "description": "A low-poly city builder on the real streets of downtown Toronto. One self-contained HTML file.",
+  "scripts": {
+    "bake": "node build/bake.mjs",
+    "build": "node build/bake.mjs && node build/bundle.mjs --entry src/main.js --out dist/index.html",
+    "dev": "node build/bake.mjs && node build/bundle.mjs --entry src/main.js --out dist/index.html --dev",
+    "test": "node build/acceptance.mjs dist/index.html dist/acceptance",
+    "test:osm": "node build/test-osm-ingest.mjs",
+    "shots": "node build/showcase.mjs dist/index.html dist/shots",
+    "fetch-osm": "node build/fetch-osm.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mohsenbagheri5191-design/Game-build.git"
+  },
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/mohsenbagheri5191-design/Game-build/issues"
+  },
+  "homepage": "https://github.com/mohsenbagheri5191-design/Game-build#readme",
+  "dependencies": {
+    "three": "^0.169.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "playwright": "^1.62.1"
+  },
+  "private": true,
+  "type": "module"
+}

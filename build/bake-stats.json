@@ -1,0 +1,28 @@
+{
+  "blocks": 294,
+  "buildableBlockPieces": 379,
+  "parcels": 22331,
+  "parcelsSkipped": 0,
+  "osmBuildings": 0,
+  "osmMatchedParcels": 0,
+  "heightSource": "district zones (derived)",
+  "streets": 96,
+  "namedStreets": 96,
+  "parks": 35,
+  "landmarks": 65,
+  "places": 78,
+  "rawBytes": 196047,
+  "gzBytes": 133419,
+  "b64Bytes": 177892,
+  "bytesPerParcel": 8.78,
+  "areaKm2": 14.48,
+  "tallest": "143.0",
+  "storeyHistogram": {
+    "5-8": 5477,
+    "3-4": 8746,
+    "1-2": 5880,
+    "9-15": 1914,
+    "16-30": 292,
+    "31+": 22
+  }
+}
