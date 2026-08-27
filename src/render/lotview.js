@@ -11,7 +11,8 @@ import * as THREE from 'three';
 import { CONFIG } from '../core/config.js';
 import { getPart, partGeometry } from '../kit/parts.js';
 import { hexToRgb01 } from '../kit/colors.js';
-import { lotGrid, parseSlot, slotTransform, slotValid } from '../game/world.js';
+import { lotGrid, parseSlot, slotTransform, slotValid, spanTransform, spanValid } from '../game/world.js';
+import { roofSpanGeometry } from '../kit/roof.js';
 import { makeInstanced, setInstanceColors, flushInstanceColors } from './props.js';
 import { makeOverlayMaterial } from './materials.js';
 
@@ -70,11 +71,16 @@ export class LotView {
         const part = getPart(rec.part);
         if (!part) continue;
         const slot = parseSlot(key);
-        if (!slotValid(g, slot)) continue;
-        const t = slotTransform(g, slot);
-        let list = byPart.get(rec.part);
-        if (!list) { list = []; byPart.set(rec.part, list); }
-        list.push({ key, lotId: lot.parcelId, rec, part, t, g });
+        // A span (the roof) covers w x d cells and is keyed by its size and
+        // shape, so each distinct roof gets its own generated mesh and
+        // identical ones still share an instanced draw.
+        const isSpan = !!rec.w;
+        if (isSpan ? !spanValid(g, slot, rec.w, rec.d) : !slotValid(g, slot)) continue;
+        const t = isSpan ? spanTransform(g, slot, rec.w, rec.d) : slotTransform(g, slot);
+        const poolKey = isSpan ? `${rec.part}|${rec.w}x${rec.d}|${rec.style || 'gable'}` : rec.part;
+        let list = byPart.get(poolKey);
+        if (!list) { list = []; byPart.set(poolKey, list); }
+        list.push({ key, lotId: lot.parcelId, rec, part, t, g, isSpan });
       }
     }
 
@@ -88,10 +94,14 @@ export class LotView {
     }
 
     this.entries = [];
-    for (const [partId, list] of byPart) {
-      const geom = partGeometry(partId);
+    for (const [poolKey, list] of byPart) {
+      const first = list[0];
+      const partId = first.rec.part;
+      const geom = first.isSpan
+        ? roofSpanGeometry(first.rec.w, first.rec.d, first.rec.style || 'gable')
+        : partGeometry(partId);
       if (!geom) continue;
-      let pool = this.pools.get(partId);
+      let pool = this.pools.get(poolKey);
       if (!pool || pool.capacity < list.length) {
         if (pool) { this.group.remove(pool.mesh); pool.mesh.geometry.dispose(); }
         const capacity = Math.max(8, Math.ceil(list.length * 1.5));
@@ -101,12 +111,12 @@ export class LotView {
         mesh.userData.partId = partId;
         this.group.add(mesh);
         pool = { mesh, capacity };
-        this.pools.set(partId, pool);
+        this.pools.set(poolKey, pool);
       }
       const { mesh } = pool;
       list.forEach((it, i) => {
         const part = it.part;
-        const j = jitterFor(it.key, part);
+        const j = it.isSpan ? { scale: 1, spin: 0 } : jitterFor(it.key, part);
         const rot = it.t.rot + (it.rec.rot || 0) * (Math.PI / 2) + (it.rec.free || 0) + j.spin;
         _q.setFromAxisAngle(_up, rot);
         _v.set(it.t.u, it.t.y, -it.t.v);
@@ -115,7 +125,7 @@ export class LotView {
         mesh.setMatrixAt(i, _m4);
         const cols = (it.rec.colors || []).map(hexToRgb01);
         setInstanceColors(mesh, i, cols.length ? cols : [[1, 1, 1]], part.glows ? 1 : 0);
-        this.entries.push({ key: it.key, lotId: it.lotId, partId, index: i, u: it.t.u, v: it.t.v, y: it.t.y });
+        this.entries.push({ key: it.key, lotId: it.lotId, partId, index: i, u: it.t.u, v: it.t.v, y: it.t.y, span: it.isSpan ? { w: it.rec.w, d: it.rec.d } : null });
       });
       mesh.count = list.length;
       mesh.instanceMatrix.needsUpdate = true;
@@ -253,11 +263,23 @@ export class LotOverlay {
   }
 
   /** Highlight one slot — used by select, move and the context menu. */
-  select(parcel, key) {
+  select(parcel, key, rec) {
     if (this.selMesh) { this.group.remove(this.selMesh); this.selMesh.geometry.dispose(); this.selMesh = null; }
     if (!parcel || !key) return;
     const g = lotGrid(parcel);
     const s = parseSlot(key);
+    if (rec && rec.w) {
+      // a span is outlined around its whole footprint, so you can see what a
+      // resize is about to change
+      const t = spanTransform(g, s, rec.w, rec.d);
+      const geom = outlineGeometry({
+        u0: t.u - (rec.w * U) / 2, v0: t.v - (rec.d * U) / 2,
+        u1: t.u + (rec.w * U) / 2, v1: t.v + (rec.d * U) / 2,
+      }, 0.13, t.y + 0.09);
+      this.selMesh = new THREE.Mesh(geom, this.selMat);
+      this.group.add(this.selMesh);
+      return;
+    }
     const t = slotTransform(g, s);
     const r = s.kind === 'c' ? U * 0.5 : U * 0.30;
     const geom = new THREE.RingGeometry(r * 0.80, r, 4, 1);
@@ -266,6 +288,45 @@ export class LotOverlay {
     this.selMesh.rotation.z = Math.PI / 4;
     this.selMesh.position.set(t.u, t.y + 0.08, -t.v);
     this.group.add(this.selMesh);
+  }
+
+  /**
+   * Drag handles on the four sides of a span. Returns their world positions so
+   * the input layer can hit-test them in screen space — dragging one is how
+   * the player sizes a roof to their building.
+   */
+  spanHandles(parcel, key, rec) {
+    for (const h of this._handles || []) { this.group.remove(h); h.geometry.dispose(); }
+    this._handles = [];
+    if (!parcel || !rec || !rec.w) return [];
+    const g = lotGrid(parcel);
+    const s = parseSlot(key);
+    const y = s.storey * SH + 0.45;
+    const cu = g.ou + (s.i + rec.w / 2) * U;
+    const cv = g.ov + (s.j + rec.d / 2) * U;
+    const spots = [
+      { side: 0, u: cu, v: g.ov + s.j * U },
+      { side: 1, u: cu, v: g.ov + (s.j + rec.d) * U },
+      { side: 2, u: g.ou + s.i * U, v: cv },
+      { side: 3, u: g.ou + (s.i + rec.w) * U, v: cv },
+    ];
+    for (const sp of spots) {
+      const geom = new THREE.RingGeometry(U * 0.16, U * 0.30, 4, 1);
+      const m = new THREE.Mesh(geom, this.selMat);
+      m.rotation.x = -Math.PI / 2;
+      m.rotation.z = Math.PI / 4;
+      m.position.set(sp.u, y, -sp.v);
+      m.renderOrder = 8;
+      this.group.add(m);
+      this._handles.push(m);
+      sp.y = y;
+    }
+    return spots;
+  }
+
+  clearHandles() {
+    for (const h of this._handles || []) { this.group.remove(h); h.geometry.dispose(); }
+    this._handles = [];
   }
 
   clearGrid() {
@@ -277,6 +338,7 @@ export class LotOverlay {
 
   clear() {
     this.clearGrid();
+    this.clearHandles();
     if (this.selMesh) { this.group.remove(this.selMesh); this.selMesh.geometry.dispose(); this.selMesh = null; }
   }
 }

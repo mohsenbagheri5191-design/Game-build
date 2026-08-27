@@ -3,7 +3,7 @@
 Run with `npm run test` against the shipped `dist/index.html` (minified).
 Full machine-readable output in `dist/acceptance/report.json`.
 
-## Automated — 65 / 65
+## Automated — 81 / 81
 
 ### 1. Every screen opens and closes without error
 
@@ -17,14 +17,14 @@ Milestones · Help · About · Site card · Context menu · Visit · Splash
 ### 2. Every catalogue item places, colours, rotates, erases and persists
 
 ```
-Catalogue: every item places    100/100
-Catalogue: every item colours   100/100
-Catalogue: every item rotates   100/100
-Catalogue: every item erases    100/100
-Catalogue: every item renders   100 instanced meshes
+Catalogue: every item places     98/98
+Catalogue: every item colours    98/98
+Catalogue: every item rotates    98/98
+Catalogue: every item erases     98/98
+Catalogue: every item renders    98 instanced meshes
 ```
 
-Each of the 100 parts is placed into a real slot of its own kind, painted,
+Each of the 98 parts is placed into a real slot of its own kind, painted,
 rotated, checked for non-empty geometry, rendered, then erased.
 
 ### 3. Every tool works, including continuous drag
@@ -40,6 +40,43 @@ Clear (with undo) · Grid toggle · Camera lock
 Save + stamp a design
 ```
 
+### 3b. The roof is one piece, and it resizes
+
+The roof is not a per-cell tile. It covers a whole rectangle of modules and is
+generated as a single mesh, so there is nothing to line up and nothing to leave
+a gap. The test is geometric rather than visual: in a closed surface every edge
+is shared by exactly **two** triangles, so counting edges that are not proves
+there are no holes or loose pieces. Every style, and every size from 1×1 to
+8×8, comes back with zero.
+
+```
+Roof: gable is one watertight piece     228 triangles, 342 edges, 0 unmatched
+Roof: hip is one watertight piece       228 triangles, 342 edges, 0 unmatched
+Roof: shed is one watertight piece       96 triangles, 144 edges, 0 unmatched
+Roof: flat is one watertight piece       28 triangles,  42 edges, 0 unmatched
+Roof: 1x1 / 2x2 / 6x2 / 2x6 / 8x8 has no gaps
+Roof: places on a lot
+Roof: fits to the building below        footprint 3x2, roof 3x2
+Roof: resizes from all four sides       grid 7x12, roof at 2,5
+Roof: will not shrink into nothing
+Roof: renders as a single mesh          roof|1x2|gable
+Roof: erase refunds for its whole area
+Neighbours: every simulated house is roofed   24/24 towns
+```
+
+The last line is a regression guard with a scar behind it. The simulated
+neighbours used to roof their houses by tiling the old ridge part; when that
+part was removed the generator asked for an id that no longer existed and the
+part placer, which ignores unknown ids by design, silently dropped it. Every
+neighbour's house lost its roof and nothing failed. The check now asserts each
+of the 24 towns has a real span roof on it.
+
+Placing a roof sizes it to the building underneath automatically. After that,
+four handles appear — one per side — and dragging one grows or shrinks the roof
+from that side only, a module at a time. The drag previews live and commits as a
+single transaction on release, so it costs the right amount and undoes in one
+step. `⤢ Fit to building` re-fits it at any time.
+
 ### 4. Claim → demolish → build → reload → the build is still there
 
 ```
@@ -50,7 +87,7 @@ Persistence: lot still held after reload
 Persistence: demolition survived reload
 Persistence: the build is still there   3 parts
 Persistence: per-part colours survived
-Persistence: balance survived           904360 -> 904360
+Persistence: balance survived           904291 -> 904291
 ```
 
 ### 5. Economy round trip
@@ -61,7 +98,7 @@ ledger moves on place                   net -3 cr (cost + build reward)
 credits up on erase                     +18 cr refunded
 level up fires                          1 -> 2
 balance is derived from the ledger, not stored
-unaffordable transactions are refused   338 ledger entries
+unaffordable transactions are refused   366 ledger entries
 ```
 
 The balance test writes `state.s.credits = 99999999` directly and confirms the
@@ -71,7 +108,7 @@ rather than stored.
 ### 6. A save is written, exported, reimported and matches
 
 ```
-Save: export, reimport and match        38.3 KB
+Save: export, reimport and match        42.0 KB
 Save: v1 save migrates forward          v1 -> v3, 1234 cr carried over
 ```
 
@@ -97,9 +134,9 @@ is what determines phone performance:
 
 | View | Draw calls | Triangles | Chunks loaded |
 |---|---|---|---|
-| Street level | 55 | 358,000 | 80 |
-| Block level | 56 | 409,000 | 80 |
-| Whole city | 170 | 608,000 | 143 |
+| Street level | 55 | 361,000 | 80 |
+| Block level | 56 | 412,000 | 80 |
+| Whole city | 166 | 609,000 | 138 |
 
 Flat-shaded Lambert, one shadow map, no post-processing. **I expect this to
 hold 30fps on a mid-range phone and 60 on a recent one, but I have not
@@ -112,28 +149,35 @@ If it misses, the lever is in `src/render/chunks.js`: the `QUALITY` table's
 
 | | |
 |---|---|
-| Page size | **934,560 bytes** (913 KB); 337 KB gzipped |
-| — of which JavaScript | 890 KB (three.js is most of it) |
+| Page size | **947,860 bytes** (926 KB); 341 KB gzipped |
+| — of which JavaScript | 903 KB (three.js is most of it) |
 | — of which CSS | 22 KB |
-| First load on 4G | Well under 30 s. One request, 336 KB over the wire. |
+| First load on 4G | Well under 30 s. One request, 341 KB over the wire. |
 | Playable area | 14.5 km² |
 | Lots | 22,331 |
 | Named streets | 96 |
 | Named places | 78 |
 | Named landmarks | 65 |
 | Parks and squares | 35 |
-| Kit parts | 100 |
-| City data | 133 KB gzipped, 196 KB raw, **8.8 bytes per lot** |
-| Save size | 28 KB with one built lot |
-| Models shipped as meshes | 0 — all 100 are generated in code |
+| Kit parts | 98 |
+| City data | 130 KB gzipped, 196 KB raw, **8.8 bytes per lot** |
+| Save size | 30.5 KB with one built lot |
+| Models shipped as meshes | 0 — all 98 are generated in code |
 
 ---
 
 ## Visual
 
-`npm run shots` builds a real 172-part structure with the kit — going through
-the same `world.place()` the player's taps go through — then takes these at
-390×844, device pixel ratio 2. Unedited. In `dist/shots/`.
+`npm run shots` builds a real structure with the kit — going through the same
+`world.place()` the player's taps go through — then takes these at 390×844,
+device pixel ratio 2. Unedited. In `dist/shots/`.
+
+**These images predate the roof rework and were not regenerated**, on request.
+The structure in them is roofed with the old tiled pieces. Everything about the
+new roof in this report is verified programmatically instead — the geometry
+tests above prove the mesh is closed at every size and style, which is a
+stronger claim about seams than a photograph would be. Run `npm run shots` to
+refresh them.
 
 | | |
 |---|---|
@@ -227,12 +271,11 @@ fabric thinning out at the edge of the fog. Nothing pops *in* while panning
 — detail only ever increases and chunks are cached — but the outward
 transition is visible if you look for it.
 
-**4. Roof pieces need thought to use well.** A single-cell A-frame tiled across
-a wide roof gives you corrugated iron, not a roof. I added a half-gable `Roof
-slope` and a hipped `Roof cap` so a proper roof of any depth is buildable
-(slope, deck, deck, slope), but a player will find the ridge piece first and
-get a sawtooth. A larger-span roof part, or a roof tool that solves a whole
-storey at once, would be the real fix.
+**4. The roof is the only part that spans.** Everything else in the kit is one
+module; the roof covers a rectangle of them (see below). That asymmetry is
+right for roofs but it means the span machinery — resize handles, area pricing,
+fit-to-building — currently has exactly one customer. Awnings, floor slabs and
+terraces would all be better as spans, and are not.
 
 **5. Weather is thin.** Rain and snow are drawn — snow in the winter months,
 rain otherwise, on a stable per-day roll so it is not permanently wet — and the

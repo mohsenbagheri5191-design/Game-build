@@ -168,7 +168,9 @@ const sweep = await page.evaluate(async () => {
     const within = n % per;
     const i = within % g.cols, j = Math.floor(within / g.cols);
     const key = slotKey(part.slot, storey, i, j, 0);
-    const r = a.world.place(lot, key, part.id, { colors: ['#ff0000', '#00ff00', '#0000ff'] });
+    const r = part.span
+      ? a.world.placeSpan(lot, key, part.id, 1, 1, { colors: ['#ff0000', '#00ff00', '#0000ff'] })
+      : a.world.place(lot, key, part.id, { colors: ['#ff0000', '#00ff00', '#0000ff'] });
     if (!r.ok) { fails.push(`${part.id}: place — ${r.reason}`); continue; }
     placed++;
     const c = a.world.paint(lot, key, ['#123456', '#654321', '#abcdef']);
@@ -177,8 +179,12 @@ const sweep = await page.evaluate(async () => {
     if (!ro.ok) fails.push(`${part.id}: rotate — ${ro.reason}`); else rotated++;
     // geometry must actually exist
     try {
-      const geom = window.__kit.partGeometry(part.id);
-      if (!geom || geom.userData.tris === 0) fails.push(`${part.id}: empty geometry`);
+      const geom = part.span
+        ? window.__roof.roofSpanGeometry(1, 1, 'gable')
+        : window.__kit.partGeometry(part.id);
+      if (!geom || (geom.userData.tris === 0 && geom.getAttribute('position').count === 0)) {
+        fails.push(`${part.id}: empty geometry`);
+      }
     } catch (e) { fails.push(`${part.id}: geometry threw — ${e.message}`); }
   }
   a.refreshLots();
@@ -344,6 +350,143 @@ rec('Tool: Clear (with undo)', tools.cleared && tools.clearUndone);
 rec('Tool: Grid toggle', tools.gridOff && tools.gridOn);
 rec('Tool: Camera lock', tools.cameraLock);
 rec('Tool: Save + stamp a design', tools.designSaved && tools.designStamped);
+
+// ---------------------------------------------------------------------------
+// 3b. the roof: one continuous piece, resizable from any side
+// ---------------------------------------------------------------------------
+console.log('--- roof ---');
+const roof = await page.evaluate(() => {
+  const a = window.__app;
+  const { lotGrid, slotKey, parseSlot } = window.__world;
+  const { roofSpanGeometry, ROOF_STYLES } = window.__roof;
+  const out = { styles: {}, sizes: {} };
+
+  // --- the mesh is watertight: every edge is shared by exactly two triangles,
+  // which is the geometric definition of "no gaps or broken pieces"
+  const watertight = (g) => {
+    const p = g.getAttribute('position');
+    const edges = new Map();
+    const k = (i) => `${p.getX(i).toFixed(3)},${p.getY(i).toFixed(3)},${p.getZ(i).toFixed(3)}`;
+    for (let t = 0; t < p.count; t += 3) {
+      const v = [k(t), k(t + 1), k(t + 2)];
+      for (let e = 0; e < 3; e++) {
+        const key = [v[e], v[(e + 1) % 3]].sort().join('|');
+        edges.set(key, (edges.get(key) || 0) + 1);
+      }
+    }
+    let open = 0;
+    for (const n of edges.values()) if (n !== 2) open++;
+    return { open, total: edges.size };
+  };
+
+  for (const st of ROOF_STYLES) {
+    const g = roofSpanGeometry(4, 3, st);
+    const w = watertight(g);
+    out.styles[st] = { tris: g.getAttribute('position').count / 3, openEdges: w.open, edges: w.total };
+  }
+  // a range of sizes, including very wide and very deep
+  for (const [w, d] of [[1, 1], [2, 2], [6, 2], [2, 6], [8, 8]]) {
+    const g = roofSpanGeometry(w, d, 'gable');
+    out.sizes[`${w}x${d}`] = { tris: g.getAttribute('position').count / 3, openEdges: watertight(g).open };
+  }
+
+  // --- it covers the whole building and resizes from every side ---
+  const lot = a.state.s.lots[0];
+  const g = lotGrid(a.city.parcelById(lot.parcelId));
+  a.activeLot = lot;
+  a.world.clearLot(lot);
+
+  // Put up a box of walls to fit a roof to, set in from the grid edge so every
+  // grow direction has somewhere to go. A roof in the grid corner cannot grow
+  // south or west — that is the lot boundary doing its job, not a resize bug,
+  // and testing it there would only measure the boundary.
+  const fw = Math.max(1, Math.min(3, g.cols - 2));
+  const fd = Math.max(1, Math.min(2, g.rows - 2));
+  const oi = Math.max(0, Math.floor((g.cols - fw) / 2));
+  const oj = Math.max(0, Math.floor((g.rows - fd) / 2));
+  out.grid = { cols: g.cols, rows: g.rows, fw, fd, oi, oj };
+  out.hasRoom = oi >= 1 && oj >= 1 && oi + fw < g.cols && oj + fd < g.rows;
+
+  for (let i = 0; i < fw; i++) {
+    a.world.place(lot, slotKey('e', 0, oi + i, oj, 0), 'wall');
+    a.world.place(lot, slotKey('e', 0, oi + i, oj + fd, 0), 'wall');
+  }
+  for (let j = 0; j < fd; j++) {
+    a.world.place(lot, slotKey('e', 0, oi, oj + j, 1), 'wall');
+    a.world.place(lot, slotKey('e', 0, oi + fw, oj + j, 1), 'wall');
+  }
+
+  const fp = a.world.buildingFootprint(lot, 1);
+  out.footprint = fp;
+
+  const rk = slotKey('c', 1, oi, oj);
+  const placed = a.world.placeSpan(lot, rk, 'roof', 1, 1, { style: 'gable' });
+  out.placed = placed.ok;
+
+  const fitted = a.world.fitSpanToBuilding(lot, rk);
+  out.fitted = fitted.ok;
+  out.fittedSize = fitted.ok ? `${fitted.w}x${fitted.d}` : null;
+  out.coversBuilding = fitted.ok && fitted.w === fp.w && fitted.d === fp.d;
+
+  // resize each of the four sides outward then back
+  let key = fitted.key;
+  const sizes = [];
+  for (const side of [0, 1, 2, 3]) {
+    const before = lot.parts[key];
+    const grow = a.world.resizeSpan(lot, key, side, 1);
+    if (grow.ok) {
+      key = grow.key;
+      const after = lot.parts[key];
+      sizes.push({ side, ok: (after.w * after.d) > (before.w * before.d) });
+      const shrink = a.world.resizeSpan(lot, key, side, -1);
+      if (shrink.ok) key = shrink.key;
+    } else {
+      sizes.push({ side, ok: false, reason: grow.reason });
+    }
+  }
+  out.resized = sizes;
+  out.allSidesResize = sizes.every((x) => x.ok);
+
+  // shrinking below one module is refused rather than producing a broken roof
+  const rec = lot.parts[key];
+  let tooSmall = null;
+  for (let n = 0; n < 20; n++) {
+    const r = a.world.resizeSpan(lot, key, 3, -1);
+    if (!r.ok) { tooSmall = r.reason; break; }
+    key = r.key;
+  }
+  out.minSizeGuarded = !!tooSmall && lot.parts[key].w >= 1 && lot.parts[key].d >= 1;
+
+  // it renders, and it is one instanced mesh not many
+  a.refreshLots();
+  const roofPools = [...a.lotView.pools.keys()].filter((k) => k.startsWith('roof|'));
+  out.renderedAsOnePiece = roofPools.length === 1;
+  out.poolKey = roofPools[0] || null;
+
+  // erase refunds for every module it covered
+  const area = lot.parts[key].w * lot.parts[key].d;
+  const er = a.world.erase(lot, key);
+  out.eraseRefundScales = er.ok && er.refund >= area;
+  out.erased = er.ok;
+  return out;
+});
+
+for (const [st, r] of Object.entries(roof.styles)) {
+  rec(`Roof: ${st} is one watertight piece`, r.openEdges === 0,
+    `${r.tris} triangles, ${r.edges} edges, ${r.openEdges} unmatched`);
+}
+for (const [size, r] of Object.entries(roof.sizes)) {
+  rec(`Roof: ${size} has no gaps`, r.openEdges === 0, `${r.tris} triangles`);
+}
+rec('Roof: places on a lot', roof.placed);
+rec('Roof: fits to the building below', roof.fitted && roof.coversBuilding,
+  `footprint ${roof.footprint?.w}x${roof.footprint?.d}, roof ${roof.fittedSize}`);
+rec('Roof: resizes from all four sides', roof.allSidesResize,
+  roof.resized.filter((x) => !x.ok).map((x) => `side ${x.side}: ${x.reason}`).join('; ')
+  || `grid ${roof.grid?.cols}x${roof.grid?.rows}, roof at ${roof.grid?.oi},${roof.grid?.oj}`);
+rec('Roof: will not shrink into nothing', roof.minSizeGuarded);
+rec('Roof: renders as a single mesh', roof.renderedAsOnePiece, roof.poolKey);
+rec('Roof: erase refunds for its whole area', roof.eraseRefundScales);
 
 // ---------------------------------------------------------------------------
 // 4. economy round trip
@@ -596,8 +739,15 @@ const numbers = await page.evaluate(() => {
     saveBytes: a.state.saveSize,
     neighbours: a.neighbours.length,
     neighbourParts: a.neighbours.reduce((s, n) => s + n.partCount, 0),
+    // every simulated house is roofed, and roofed with a span — a part id that
+    // no longer exists would be dropped silently and leave them all open
+    neighboursRoofed: a.neighbours.filter((n) =>
+      Object.values(n.parts).some((r) => r.part === 'roof' && r.w >= 1 && r.d >= 1)).length,
   };
 });
+rec('Neighbours: every simulated house is roofed',
+  numbers.neighboursRoofed === numbers.neighbours,
+  `${numbers.neighboursRoofed}/${numbers.neighbours} towns`);
 
 // ---------------------------------------------------------------------------
 // 10. no network requests at runtime

@@ -14,12 +14,13 @@ import { ChunkManager } from './render/chunks.js';
 import { TouchCamera } from './camera/controls.js';
 import { LotView, Ghost, LotOverlay, BorderOverlay } from './render/lotview.js';
 import { GameState, migrate } from './game/save.js';
-import { World, lotGrid, nearestSlot, slotKey, slotValid, slotTransform, slotsAlong, parseSlot, obbOverlap } from './game/world.js';
+import { World, lotGrid, nearestSlot, slotKey, slotValid, slotTransform, slotsAlong, parseSlot, obbOverlap, spanValid, spanTransform } from './game/world.js';
 import {
   generateNeighbours, processDailyLogin, processUpkeep, checkMilestones,
   receiveVisit, CIVIC_PROJECTS, civicProgress, randomNote,
 } from './game/sim.js';
 import { getPart, partGeometry, allParts } from './kit/parts.js';
+import { ROOF_STYLES, ROOF_STYLE_NAMES, roofSpanGeometry } from './kit/roof.js';
 import './kit/decor.js';
 import { hexToRgb01, defaultColorsFor } from './kit/colors.js';
 import { makeInstanced, setInstanceColors, flushInstanceColors } from './render/props.js';
@@ -229,7 +230,8 @@ class App {
       openCivic, openPlaces, openSettings, openMilestones, openHelp, openAbout, openContextMenu,
     };
     window.__kit = { allParts, getPart, partGeometry };
-    window.__world = { lotGrid, nearestSlot, slotKey, slotValid, slotTransform, slotsAlong, parseSlot, obbOverlap };
+    window.__roof = { roofSpanGeometry, ROOF_STYLES, ROOF_STYLE_NAMES };
+    window.__world = { lotGrid, nearestSlot, slotKey, slotValid, slotTransform, slotsAlong, parseSlot, obbOverlap, spanValid, spanTransform };
     window.__save = { migrate };
     window.__ready = true;
   }
@@ -299,6 +301,48 @@ class App {
     if (near && this.mode !== 'visit') {
       const lot = this.state.lot(near.lotId);
       const part = getPart(near.partId);
+      const rec = lot?.parts?.[near.key];
+      if (rec && rec.w) {
+        // roofs get their own menu: fit, shape, colour, erase
+        const styleActions = ROOF_STYLES.filter((st) => st !== rec.style).map((st) => ({
+          ico: '⌂', label: `Shape: ${ROOF_STYLE_NAMES[st]}`,
+          run: () => {
+            this.world.setSpanStyle(lot, near.key, st);
+            this.audio.snap(); this.refreshLots();
+          },
+        }));
+        openContextMenu(this, {
+          title: `Roof ${rec.w} × ${rec.d}`,
+          sub: `${ROOF_STYLE_NAMES[rec.style] || 'Gable'} · ${lot.name}`,
+          actions: [
+            { ico: '⤢', label: 'Fit to the building below', hint: 'Snap it to the walls underneath',
+              run: () => {
+                const res = this.world.fitSpanToBuilding(lot, near.key);
+                if (!res.ok) { toast(res.reason, 'bad'); return; }
+                this.ui.selectedSlot = res.key;
+                this.activeLot = lot;
+                toast(`Roof fitted — ${res.w} × ${res.d}`, 'good');
+                this.audio.place();
+                this.refreshLots(); this.refreshOverlay();
+              } },
+            { ico: '↔', label: 'Resize by dragging a side', hint: 'Selects it and shows the handles',
+              run: () => {
+                this.activeLot = lot;
+                this.ui.selectedSlot = near.key;
+                this.enterBuild();
+                this.bar.setTool('select');
+                this.refreshOverlay();
+                toast('Drag any of the four handles');
+              } },
+            ...styleActions,
+            { ico: '🎨', label: 'Colour this roof',
+              run: () => { this.activeLot = lot; this.ui.selectedSlot = near.key; this.ui.showColours = true; this.enterBuild(); this.bar.render(); } },
+            { ico: '🧽', label: 'Erase',
+              run: () => { const e = this.world.erase(lot, near.key); if (e.ok) { this.audio.erase(); toast(`Removed · +${e.refund} cr`); this.ui.selectedSlot = null; this.refreshLots(); this.refreshOverlay(); } } },
+          ],
+        });
+        return;
+      }
       openContextMenu(this, {
         title: part?.name || 'Part',
         sub: lot?.name,
@@ -343,6 +387,29 @@ class App {
    */
   onDragStart(p) {
     if (this.mode !== 'build' || !this.activeLot) return false;
+
+    // A resize handle takes priority over everything else: dragging one side
+    // of a roof is how it is sized to the building.
+    const handle = this.handleAt(p);
+    if (handle) {
+      const slot = parseSlot(this.ui.selectedSlot);
+      const rec = this.activeLot.parts[this.ui.selectedSlot];
+      const start = this.pointAtStorey(p, slot.storey);
+      if (rec && rec.w && start) {
+        this.resizeDrag = {
+          origKey: this.ui.selectedSlot,
+          orig: { storey: slot.storey, i: slot.i, j: slot.j, w: rec.w, d: rec.d },
+          origRec: { ...rec },
+          side: handle.side,
+          start,
+          applied: 0,
+        };
+        haptic('medium');
+        this.hud.setHint('Drag to resize');
+        return true;
+      }
+    }
+
     if (!['place', 'paint', 'erase'].includes(this.bar.tool)) return false;
     if (this.bar.tool === 'place' && !this.ui.heldPart) return false;
     const hit = this.pointAtStorey(p);
@@ -353,6 +420,25 @@ class App {
   }
 
   onDragMove(p) {
+    if (this.resizeDrag) {
+      const r = this.resizeDrag;
+      const now = this.pointAtStorey(p, r.orig.storey);
+      if (!now) return;
+      // how far the dragged edge has travelled along its own outward normal
+      const du = now.u - r.start.u, dv = now.v - r.start.v;
+      const along = r.side === 0 ? -dv : r.side === 1 ? dv : r.side === 2 ? -du : du;
+      const want = Math.round(along / CONFIG.grid.unit);
+      if (want !== r.applied) {
+        if (this.previewResize(r.orig, r.side, want)) {
+          r.applied = want;
+          this.audio.snap();
+          const rec = this.activeLot.parts[this.ui.selectedSlot];
+          this.hud.setHint(`Roof ${rec.w} × ${rec.d}`);
+          this.bar.setRunTotal(rec.w * rec.d, getPart(rec.part).cost * rec.w * rec.d);
+        }
+      }
+      return;
+    }
     if (!this.dragRun) return;
     const hit = this.pointAtStorey(p);
     if (!hit) return;
@@ -372,6 +458,26 @@ class App {
   }
 
   onDragEnd(p, cancelled) {
+    if (this.resizeDrag) {
+      const r = this.resizeDrag;
+      this.resizeDrag = null;
+      this.bar.setRunTotal(0, 0);
+      // Undo the live preview, then apply the whole change as one transaction
+      // so it costs the right amount and is a single step in the history.
+      const previewKey = this.ui.selectedSlot;
+      if (previewKey !== r.origKey) delete this.activeLot.parts[previewKey];
+      this.activeLot.parts[r.origKey] = r.origRec;
+      this.ui.selectedSlot = r.origKey;
+      if (r.applied && !cancelled) {
+        const res = this.world.resizeSpan(this.activeLot, r.origKey, r.side, r.applied);
+        if (!res.ok) toast(res.reason, 'bad');
+        else this.ui.selectedSlot = res.key;
+      }
+      this.refreshLots();
+      this.refreshOverlay();
+      this.hud.setHint('');
+      return;
+    }
     if (!this.dragRun) return;
     const { count, cost } = this.dragRun;
     this.dragRun = null;
@@ -417,6 +523,30 @@ class App {
       case 'place': {
         const part = getPart(this.ui.heldPart);
         if (!part) return;
+        if (part.span) {
+          // A roof arrives already covering the building below it, which is
+          // what people expect and saves a resize they should not have to do.
+          const fit = this.world.buildingFootprint(lot, slot.storey);
+          const g2 = lotGrid(this.city.parcelById(lot.parcelId));
+          let i = slot.i, j = slot.j, w = part.spanDefault[0], d = part.spanDefault[1];
+          if (fit && spanValid(g2, { ...slot, i: fit.i, j: fit.j }, fit.w, fit.d)) {
+            i = fit.i; j = fit.j; w = fit.w; d = fit.d;
+          } else {
+            w = Math.min(w, g2.cols - i); d = Math.min(d, g2.rows - j);
+          }
+          const sk = slotKey('c', slot.storey, i, j);
+          const rs = this.world.placeSpan(lot, sk, part.id, w, d, {
+            colors: this.bar.colors, style: this.ui.roofStyle || part.style,
+          });
+          if (!rs.ok) { toast(rs.reason, 'bad'); this.audio.error(); return; }
+          this.audio.place();
+          this.noteRecent(part.id);
+          this.ui.selectedSlot = sk;
+          this.refreshLots();
+          this.refreshOverlay();
+          toast(`Roof ${w}x${d} — drag a side to resize`);
+          return;
+        }
         const r = this.world.place(lot, key, part.id, { colors: this.bar.colors, rot: this.ui.rot || 0 });
         if (!r.ok) { if (single || !run) { toast(r.reason, 'bad'); this.audio.error(); } return; }
         this.audio.place();
@@ -465,7 +595,7 @@ class App {
       }
       case 'select': {
         this.ui.selectedSlot = key;
-        this.overlay.select(this.city.parcelById(lot.parcelId), key);
+        this.refreshOverlay();
         this.bar.renderColours();
         break;
       }
@@ -580,7 +710,59 @@ class App {
   refreshOverlay() {
     const parcel = this.activeLot ? this.city.parcelById(this.activeLot.parcelId) : null;
     this.overlay.set(this.mode === 'build' ? parcel : null, this.ui.storey, this.ui.showGrid);
-    if (this.ui.selectedSlot && parcel) this.overlay.select(parcel, this.ui.selectedSlot);
+    this.spanHandles = [];
+    if (this.ui.selectedSlot && parcel) {
+      const rec = this.activeLot?.parts?.[this.ui.selectedSlot] || null;
+      this.overlay.select(parcel, this.ui.selectedSlot, rec);
+      if (rec && rec.w && this.mode === 'build') {
+        this.spanHandles = this.overlay.spanHandles(parcel, this.ui.selectedSlot, rec);
+      } else {
+        this.overlay.clearHandles();
+      }
+    } else {
+      this.overlay.clearHandles();
+    }
+  }
+
+  /** Screen position of a world point, for hit-testing the drag handles. */
+  toScreen(u, v, y) {
+    const p = new THREE.Vector3(u, y, -v).project(this.stage.camera);
+    return {
+      x: (p.x * 0.5 + 0.5) * this.stage.canvas.clientWidth,
+      y: (-p.y * 0.5 + 0.5) * this.stage.canvas.clientHeight,
+      behind: p.z > 1,
+    };
+  }
+
+  /** Which resize handle, if any, a touch landed on. */
+  handleAt(p) {
+    for (const h of this.spanHandles || []) {
+      const s = this.toScreen(h.u, h.v, h.y);
+      if (s.behind) continue;
+      if (Math.hypot(s.x - p.x, s.y - p.y) < 44) return h;
+    }
+    return null;
+  }
+
+  /** Live preview while a side is being dragged; no ledger entry until drop. */
+  previewResize(orig, side, delta) {
+    const lot = this.activeLot;
+    const g = lotGrid(this.city.parcelById(lot.parcelId));
+    let { i, j, w, d } = orig;
+    if (side === 0) { j -= delta; d += delta; }
+    else if (side === 1) { d += delta; }
+    else if (side === 2) { i -= delta; w += delta; }
+    else { w += delta; }
+    if (!spanValid(g, { storey: orig.storey, i, j }, w, d)) return false;
+    const newKey = slotKey('c', orig.storey, i, j);
+    const rec = lot.parts[this.ui.selectedSlot];
+    if (!rec) return false;
+    delete lot.parts[this.ui.selectedSlot];
+    lot.parts[newKey] = { ...rec, w, d };
+    this.ui.selectedSlot = newKey;
+    this.refreshLots();
+    this.refreshOverlay();
+    return true;
   }
 
   afterLotChange() {

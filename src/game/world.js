@@ -65,6 +65,36 @@ export function slotValid(g, s) {
   return false;
 }
 
+/**
+ * Placement for a *span* — a part that covers w x d cells rather than one.
+ * Its slot key stores the minimum corner; the mesh is centred over the whole
+ * rectangle, which is what lets one roof cover a whole building seamlessly.
+ */
+export function spanTransform(g, slot, w, d) {
+  return {
+    u: g.ou + (slot.i + w / 2) * U,
+    v: g.ov + (slot.j + d / 2) * U,
+    y: slot.storey * CONFIG.grid.storeyHeight,
+    rot: 0,
+  };
+}
+
+/** Does a w x d span starting at (i,j) fit inside the lot's grid? */
+export function spanValid(g, slot, w, d) {
+  if (w < 1 || d < 1) return false;
+  if (slot.storey < CONFIG.grid.minStorey || slot.storey >= CONFIG.grid.maxStoreys) return false;
+  return slot.i >= 0 && slot.j >= 0 && slot.i + w <= g.cols && slot.j + d <= g.rows;
+}
+
+/** The cells a span covers, as an {i0,j0,i1,j1} half-open rectangle. */
+export function spanCells(slot, w, d) {
+  return { i0: slot.i, j0: slot.j, i1: slot.i + w, j1: slot.j + d, storey: slot.storey };
+}
+
+export function spansOverlap(a, b) {
+  return a.storey === b.storey && a.i0 < b.i1 && b.i0 < a.i1 && a.j0 < b.j1 && b.j0 < a.j1;
+}
+
 /** World placement for a slot: grid position, base height, and base rotation. */
 export function slotTransform(g, s) {
   let u, v, rot = 0;
@@ -377,6 +407,247 @@ export class World extends EventTarget {
     return res;
   }
 
+  // --- spans (the roof) --------------------------------------------------
+  /** Every span record on a lot, with its cell rectangle resolved. */
+  spansOn(lot) {
+    const out = [];
+    for (const [key, rec] of Object.entries(lot.parts || {})) {
+      if (!rec.w) continue;
+      const slot = parseSlot(key);
+      out.push({ key, rec, slot, cells: spanCells(slot, rec.w, rec.d) });
+    }
+    return out;
+  }
+
+  spanAt(lot, storey, i, j) {
+    for (const s of this.spansOn(lot)) {
+      const c = s.cells;
+      if (c.storey === storey && i >= c.i0 && i < c.i1 && j >= c.j0 && j < c.j1) return s;
+    }
+    return null;
+  }
+
+  /**
+   * Place a span. Anything it covers on the same storey is removed with it, so
+   * a roof never lands half on top of a floor tile.
+   */
+  placeSpan(lot, key, partId, w, d, opts = {}) {
+    const part = getPart(partId);
+    if (!part || !part.span) return { ok: false, reason: 'Not a span part.' };
+    if (part.level > this.state.level) return { ok: false, reason: `Unlocks at level ${part.level}.` };
+    const slot = parseSlot(key);
+    const g = lotGrid(this.city.parcelById(lot.parcelId));
+    if (!spanValid(g, slot, w, d)) return { ok: false, reason: 'That does not fit on the lot.' };
+
+    const cells = spanCells(slot, w, d);
+    for (const s of this.spansOn(lot)) {
+      if (s.key !== key && spansOverlap(s.cells, cells)) {
+        return { ok: false, reason: 'That would overlap another roof.' };
+      }
+    }
+
+    const cost = opts.free ? 0 : part.cost * w * d;
+    const reward = (CONFIG.economy.placeReward + CONFIG.economy.placeRewardPerLevel * (this.state.level - 1)) * Math.min(w * d, 8);
+    const isNewType = !this.state.s.stats.partTypes.includes(partId);
+
+    // whatever this covers on the same storey goes with it
+    const covered = {};
+    for (const [k, r] of Object.entries(lot.parts)) {
+      if (k === key || r.w) continue;
+      const s2 = parseSlot(k);
+      if (s2.kind !== 'c' || s2.storey !== slot.storey) continue;
+      if (s2.i >= cells.i0 && s2.i < cells.i1 && s2.j >= cells.j0 && s2.j < cells.j1) covered[k] = { ...r };
+    }
+
+    const previous = lot.parts[key] ? { ...lot.parts[key] } : null;
+    const rec = {
+      part: partId, rot: 0, free: 0,
+      w, d, style: opts.style || part.style || 'gable',
+      colors: opts.colors ? opts.colors.slice() : defaultColorsFor(part),
+      t: Date.now(),
+    };
+
+    const res = this.state.commit({
+      entries: [
+        { type: 'build', amount: -cost, note: `${part.name} ${w}x${d}` },
+        { type: 'reward', amount: Math.round(reward), note: `Placed ${part.name}` },
+      ],
+      xp: CONFIG.progression.xpPerPart * Math.min(w * d, 6) + (isNewType ? CONFIG.progression.xpPerNewPartType : 0),
+      apply: (st) => {
+        for (const k of Object.keys(covered)) delete lot.parts[k];
+        lot.parts[key] = rec;
+        st.s.stats.placed++;
+        if (isNewType) st.s.stats.partTypes.push(partId);
+        lot.storeys = Math.max(lot.storeys || 1, slot.storey + 1);
+      },
+    });
+    if (res.ok) {
+      this.pushUndo({
+        label: `Place ${part.name}`,
+        undo: () => {
+          if (previous) lot.parts[key] = previous; else delete lot.parts[key];
+          for (const [k, r] of Object.entries(covered)) lot.parts[k] = r;
+        },
+        redo: () => {
+          for (const k of Object.keys(covered)) delete lot.parts[k];
+          lot.parts[key] = rec;
+        },
+      });
+      this.dispatchEvent(new CustomEvent('build', { detail: { lot, key, action: 'place' } }));
+    }
+    return res;
+  }
+
+  /**
+   * Drag one side of a span in or out, in whole modules.
+   *
+   * @param side 0 south (-v), 1 north (+v), 2 west (-u), 3 east (+u)
+   * @param delta modules to move that edge outward (negative pulls it in)
+   */
+  resizeSpan(lot, key, side, delta) {
+    const rec = lot.parts[key];
+    if (!rec || !rec.w) return { ok: false, reason: 'Not a resizable part.' };
+    if (!delta) return { ok: true, unchanged: true };
+    const part = getPart(rec.part);
+    const slot = parseSlot(key);
+    const g = lotGrid(this.city.parcelById(lot.parcelId));
+
+    let { i, j } = slot;
+    let w = rec.w, d = rec.d;
+    if (side === 0) { j -= delta; d += delta; }
+    else if (side === 1) { d += delta; }
+    else if (side === 2) { i -= delta; w += delta; }
+    else { w += delta; }
+
+    const newSlot = { ...slot, i, j };
+    if (!spanValid(g, newSlot, w, d)) return { ok: false, reason: 'That is as far as it goes.' };
+
+    const cells = spanCells(newSlot, w, d);
+    for (const s of this.spansOn(lot)) {
+      if (s.key !== key && spansOverlap(s.cells, cells)) return { ok: false, reason: 'That would overlap another roof.' };
+    }
+
+    const newKey = slotKey('c', slot.storey, i, j);
+    const before = { key, rec: { ...rec } };
+    const areaBefore = rec.w * rec.d, areaAfter = w * d;
+    const diff = (areaAfter - areaBefore) * part.cost;
+
+    // growing costs, shrinking refunds at the partial rate
+    const entries = diff > 0
+      ? [{ type: 'build', amount: -diff, note: `Resized ${part.name}` }]
+      : diff < 0
+        ? [{ type: 'refund', amount: Math.round(-diff * CONFIG.economy.refundPartial), note: `Resized ${part.name}` }]
+        : [];
+
+    const covered = {};
+    for (const [k, r] of Object.entries(lot.parts)) {
+      if (k === key || r.w) continue;
+      const s2 = parseSlot(k);
+      if (s2.kind !== 'c' || s2.storey !== slot.storey) continue;
+      if (s2.i >= cells.i0 && s2.i < cells.i1 && s2.j >= cells.j0 && s2.j < cells.j1) covered[k] = { ...r };
+    }
+
+    const res = this.state.commit({
+      entries,
+      apply: () => {
+        delete lot.parts[key];
+        for (const k of Object.keys(covered)) delete lot.parts[k];
+        lot.parts[newKey] = { ...rec, w, d, t: rec.t };
+      },
+    });
+    if (res.ok) {
+      const after = { key: newKey, rec: { ...lot.parts[newKey] } };
+      this.pushUndo({
+        label: 'Resize roof',
+        undo: () => {
+          delete lot.parts[after.key];
+          lot.parts[before.key] = before.rec;
+          for (const [k, r] of Object.entries(covered)) lot.parts[k] = r;
+        },
+        redo: () => {
+          delete lot.parts[before.key];
+          for (const k of Object.keys(covered)) delete lot.parts[k];
+          lot.parts[after.key] = after.rec;
+        },
+      });
+      this.dispatchEvent(new CustomEvent('build', { detail: { lot, key: newKey, action: 'resize' } }));
+    }
+    return { ...res, key: newKey };
+  }
+
+  /**
+   * The footprint of whatever is built on the storeys below — walls, floors and
+   * posts — so a roof can be snapped to cover exactly the building under it.
+   */
+  buildingFootprint(lot, storey) {
+    let i0 = Infinity, j0 = Infinity, i1 = -Infinity, j1 = -Infinity;
+    for (const [k, r] of Object.entries(lot.parts || {})) {
+      if (r.w) continue;
+      const s = parseSlot(k);
+      if (s.storey >= storey || s.storey < 0) continue;
+      // an edge or corner at index i sits on the boundary, so it bounds the
+      // cell on either side of it
+      if (s.kind === 'c') { i0 = Math.min(i0, s.i); j0 = Math.min(j0, s.j); i1 = Math.max(i1, s.i + 1); j1 = Math.max(j1, s.j + 1); }
+      else if (s.kind === 'e' && s.axis === 0) { i0 = Math.min(i0, s.i); i1 = Math.max(i1, s.i + 1); j0 = Math.min(j0, s.j); j1 = Math.max(j1, s.j); }
+      else if (s.kind === 'e') { j0 = Math.min(j0, s.j); j1 = Math.max(j1, s.j + 1); i0 = Math.min(i0, s.i); i1 = Math.max(i1, s.i); }
+      else { i0 = Math.min(i0, s.i); i1 = Math.max(i1, s.i); j0 = Math.min(j0, s.j); j1 = Math.max(j1, s.j); }
+    }
+    if (!Number.isFinite(i0) || i1 <= i0 || j1 <= j0) return null;
+    return { i: i0, j: j0, w: i1 - i0, d: j1 - j0 };
+  }
+
+  /** Snap a roof to cover the building beneath it exactly. */
+  fitSpanToBuilding(lot, key) {
+    const rec = lot.parts[key];
+    if (!rec || !rec.w) return { ok: false, reason: 'Not a roof.' };
+    const slot = parseSlot(key);
+    const fit = this.buildingFootprint(lot, slot.storey);
+    if (!fit) return { ok: false, reason: 'Nothing built underneath to fit to.' };
+    const g = lotGrid(this.city.parcelById(lot.parcelId));
+    const newSlot = { ...slot, i: fit.i, j: fit.j };
+    if (!spanValid(g, newSlot, fit.w, fit.d)) return { ok: false, reason: 'That will not fit on the lot.' };
+
+    const part = getPart(rec.part);
+    const diff = (fit.w * fit.d - rec.w * rec.d) * part.cost;
+    const newKey = slotKey('c', slot.storey, fit.i, fit.j);
+    const before = { key, rec: { ...rec } };
+
+    const res = this.state.commit({
+      entries: diff > 0 ? [{ type: 'build', amount: -diff, note: 'Fitted roof' }]
+        : diff < 0 ? [{ type: 'refund', amount: Math.round(-diff * CONFIG.economy.refundPartial), note: 'Fitted roof' }] : [],
+      apply: () => {
+        delete lot.parts[key];
+        lot.parts[newKey] = { ...rec, w: fit.w, d: fit.d };
+      },
+    });
+    if (res.ok) {
+      const after = { key: newKey, rec: { ...lot.parts[newKey] } };
+      this.pushUndo({
+        label: 'Fit roof',
+        undo: () => { delete lot.parts[after.key]; lot.parts[before.key] = before.rec; },
+        redo: () => { delete lot.parts[before.key]; lot.parts[after.key] = after.rec; },
+      });
+      this.dispatchEvent(new CustomEvent('build', { detail: { lot, key: newKey, action: 'fit' } }));
+    }
+    return { ...res, key: newKey, w: fit.w, d: fit.d };
+  }
+
+  /** Cycle a roof through its shapes. */
+  setSpanStyle(lot, key, style) {
+    const rec = lot.parts[key];
+    if (!rec || !rec.w) return { ok: false, reason: 'Not a roof.' };
+    const before = rec.style;
+    rec.style = style;
+    this.state.touch();
+    this.pushUndo({
+      label: 'Roof shape',
+      undo: () => { rec.style = before; },
+      redo: () => { rec.style = style; },
+    });
+    this.dispatchEvent(new CustomEvent('build', { detail: { lot, key, action: 'style' } }));
+    return { ok: true };
+  }
+
   /** Erase, with a full refund inside the grace window and partial after it. */
   erase(lot, key) {
     const rec = lot.parts[key];
@@ -384,7 +655,9 @@ export class World extends EventTarget {
     const part = getPart(rec.part);
     const age = Date.now() - (rec.t || 0);
     const rate = age <= CONFIG.economy.refundGraceMs ? CONFIG.economy.refundFull : CONFIG.economy.refundPartial;
-    const refund = Math.round((part?.cost || 0) * rate);
+    // a span refunds for every module it covers, not once
+    const area = rec.w ? rec.w * rec.d : 1;
+    const refund = Math.round((part?.cost || 0) * area * rate);
     const snapshot = { ...rec };
 
     const res = this.state.commit({

@@ -164,11 +164,15 @@ function buildNeighbourTown(city, parcel, nb) {
       }
     }
   }
-  // roof
-  for (let i = 0; i < fw; i++) {
-    for (let j = 0; j < fd; j++) {
-      const flat = r() < 0.35;
-      put(slotKey('c', storeys, fi + i, fj + j), flat ? 'roofFlat' : 'roofRidge', 0, palette);
+  // roof: one span over the whole footprint, the same as the player gets
+  {
+    const style = r() < 0.30 ? 'flat' : (r() < 0.30 ? 'hip' : 'gable');
+    const p = getPart('roof');
+    if (p) {
+      parts[slotKey('c', storeys, fi, fj)] = {
+        part: 'roof', rot: 0, free: 0, w: fw, d: fd, style,
+        colors: palette, t: 0,
+      };
     }
   }
   // a fence along the street edge

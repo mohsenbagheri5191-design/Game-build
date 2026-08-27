@@ -19,6 +19,7 @@
 import * as THREE from 'three';
 import { MeshBuilder, roundRect, blob } from './mesh.js';
 import { CONFIG } from '../core/config.js';
+import { roofSpanGeometry } from './roof.js';
 
 export const U = CONFIG.grid.unit;          // one module
 const WT = CONFIG.grid.wallThickness;
@@ -49,6 +50,9 @@ function def(id, meta, build) {
     vary: !!meta.vary,             // per-instance scale/rotation jitter
     tall: meta.tall ?? 1,
     earned: meta.earned || null,
+    span: !!meta.span,
+    spanDefault: meta.spanDefault || [2, 2],
+    style: meta.style || null,
     tags: meta.tags || '',
     build,
     _geom: null,
@@ -474,99 +478,29 @@ def('slab', { name: 'Slab', cat: 'floors', slot: 'cell', cost: 7, zones: ['Slab'
   });
 
 /**
- * Roof ridge. The ridge runs along +X and the piece has no end walls, so a run
- * of them along that axis reads as one continuous roof rather than a row of
- * separate little gables. Cap the ends with a Roof cap.
+ * The roof.
+ *
+ * One piece covering a whole rectangle of modules, not a tile you repeat — so
+ * it never has seams or gaps however big the building is. Drag any side to
+ * resize it, or use "Fit to building" to snap it to the walls underneath.
+ * Geometry is generated per size in kit/roof.js.
  */
-def('roofRidge', { name: 'Roof ridge', cat: 'floors', slot: 'cell', cost: 15, zones: ['Roof', 'Ridge', 'Detail'], tags: 'roof pitch gable ridge' },
+def('roof', { name: 'Roof', cat: 'floors', slot: 'cell', fit: 'span', cost: 13, span: true,
+  spanDefault: [2, 2], style: 'gable',
+  zones: ['Roof', 'Trim', 'Detail'], tags: 'roof gable hip shed pitch cover whole building resize' },
   (mb) => {
-    const rh = U * 0.55, ov = 0.10;
-    const hw = U / 2, hd = U / 2 + ov;
-    const p = (x, y, z) => new THREE.Vector3(x, y, z);
-    mb.zoneOf(0);
-    // two sloping planes; open at both ends so neighbours merge seamlessly
-    for (const sz of [-1, 1]) {
-      mb.quad(
-        p(-hw, 0, sz * hd), p(hw, 0, sz * hd), p(hw, rh, 0), p(-hw, rh, 0),
-        sz > 0 ? [0.88, 0.88, 1.06, 1.06] : [0.80, 0.80, 1.0, 1.0]);
-    }
-    // underside, so the roof is not see-through from below
-    mb.quad(p(-hw, 0, hd), p(-hw, rh, 0), p(hw, rh, 0), p(hw, 0, hd), [0.74, 0.74, 0.74, 0.74]);
-    mb.quad(p(hw, 0, -hd), p(hw, rh, 0), p(-hw, rh, 0), p(-hw, 0, -hd), [0.74, 0.74, 0.74, 0.74]);
-    // ridge cap along the top
-    mb.zoneOf(1);
-    mb.push(); mb.translate(0, rh, 0);
-    mb.chamfer(U, 0.10, 0.17, 0.02, { centreY: true });
-    mb.pop();
-    // eaves boards
-    for (const sz of [-1, 1]) {
-      mb.push(); mb.translate(0, 0.03, sz * hd);
-      mb.chamfer(U, 0.10, 0.06, 0.014, { centreY: true });
-      mb.pop();
+    // the catalogue thumbnail and the drag ghost use a default 2x2 gable
+    const g = roofSpanGeometry(2, 2, 'gable');
+    const pos = g.getAttribute('position'), nrm = g.getAttribute('normal');
+    const zone = g.getAttribute('zone'), sh = g.getAttribute('shade');
+    for (let i = 0; i < pos.count; i++) {
+      mb.pos.push(pos.getX(i), pos.getY(i), pos.getZ(i));
+      mb.nrm.push(nrm.getX(i), nrm.getY(i), nrm.getZ(i));
+      mb.zone.push(zone.getX(i)); mb.shade.push(sh.getX(i));
+      mb.seed.push(0); mb.tone.push(0.5);
     }
   });
 
-/** Hipped end for a ridge run: slopes on three sides, open toward the ridge. */
-def('roofCap', { name: 'Roof cap', cat: 'floors', slot: 'cell', cost: 17, level: 2, zones: ['Roof', 'Ridge', 'Detail'], tags: 'roof hip end cap' },
-  (mb) => {
-    const rh = U * 0.55, ov = 0.10;
-    const hw = U / 2, hd = U / 2 + ov;
-    const p = (x, y, z) => new THREE.Vector3(x, y, z);
-    mb.zoneOf(0);
-    // ridge line stops short of the far edge, giving a hip
-    const rx = hw - U * 0.34;
-    for (const sz of [-1, 1]) {
-      mb.quad(p(-hw, 0, sz * hd), p(rx, 0, sz * hd), p(rx, rh, 0), p(-hw, rh, 0),
-        sz > 0 ? [0.88, 0.88, 1.06, 1.06] : [0.80, 0.80, 1.0, 1.0]);
-    }
-    // the hip triangle
-    mb.tri(p(rx, 0, hd), p(hw, 0, 0), p(rx, rh, 0), [0.9, 0.9, 1.05]);
-    mb.tri(p(hw, 0, 0), p(rx, 0, -hd), p(rx, rh, 0), [0.9, 0.9, 1.05]);
-    mb.quad(p(rx, 0, hd), p(rx, rh, 0), p(hw, 0, 0), p(hw, 0, 0), [0.6, 0.6, 0.6, 0.6]);
-    mb.quad(p(-hw, 0, hd), p(-hw, rh, 0), p(rx, rh, 0), p(rx, 0, hd), [0.6, 0.6, 0.6, 0.6]);
-    mb.quad(p(rx, 0, -hd), p(rx, rh, 0), p(-hw, rh, 0), p(-hw, 0, -hd), [0.6, 0.6, 0.6, 0.6]);
-    mb.zoneOf(1);
-    mb.push(); mb.translate((-hw + rx) / 2, rh, 0);
-    mb.chamfer(rx + hw, 0.10, 0.17, 0.02, { centreY: true });
-    mb.pop();
-    for (const sz of [-1, 1]) {
-      mb.push(); mb.translate((-hw + rx) / 2, 0.03, sz * hd);
-      mb.chamfer(rx + hw, 0.10, 0.06, 0.014, { centreY: true });
-      mb.pop();
-    }
-    mb.push(); mb.translate(rx, rh + 0.05, 0);
-    mb.sphere(0.085, 6, 4);
-    mb.pop();
-  });
-
-/**
- * Half-gable: slopes one way only, from the low +Z eave up to the high -Z edge.
- * Two of these facing each other make a gable; one at each end of a run of flat
- * deck makes a proper roof of any depth. A single A-frame per cell cannot —
- * a row of them is corrugated iron, not a roof.
- */
-def('roofSlope', { name: 'Roof slope', cat: 'floors', slot: 'cell', cost: 14, zones: ['Roof', 'Trim', 'Detail'], tags: 'roof slope shed half gable pitch' },
-  (mb) => {
-    const rh = U * 0.55, ov = 0.10;
-    const hw = U / 2, lo = U / 2 + ov, hi = U / 2;
-    const p = (x, y, z) => new THREE.Vector3(x, y, z);
-    mb.zoneOf(0);
-    // the sloping face
-    mb.quad(p(-hw, 0, lo), p(hw, 0, lo), p(hw, rh, -hi), p(-hw, rh, -hi), [0.86, 0.86, 1.06, 1.06]);
-    // gable triangles at each end
-    mb.tri(p(hw, 0, lo), p(hw, 0, -hi), p(hw, rh, -hi), [0.92, 0.92, 1.0]);
-    mb.tri(p(-hw, 0, -hi), p(-hw, 0, lo), p(-hw, rh, -hi), [0.78, 0.78, 0.94]);
-    // underside + back
-    mb.quad(p(-hw, 0, lo), p(-hw, rh, -hi), p(hw, rh, -hi), p(hw, 0, lo), [0.74, 0.74, 0.74, 0.74]);
-    mb.quad(p(-hw, 0, -hi), p(hw, 0, -hi), p(hw, rh, -hi), p(-hw, rh, -hi), [0.80, 0.80, 0.95, 0.95]);
-    mb.zoneOf(1);
-    mb.push(); mb.translate(0, 0.03, lo);
-    mb.chamfer(U, 0.10, 0.06, 0.014, { centreY: true });
-    mb.pop();
-    mb.push(); mb.translate(0, rh, -hi + 0.04);
-    mb.chamfer(U, 0.09, 0.12, 0.02, { centreY: true });
-    mb.pop();
-  });
 
 def('roofFlat', { name: 'Flat roof deck', cat: 'floors', slot: 'cell', cost: 11, zones: ['Deck', 'Coping', 'Detail'], tags: 'roof flat deck' },
   (mb) => {

@@ -122,32 +122,11 @@ const built = await page.evaluate(() => {
   // same slot, which is the slot system working as intended
   if (place(slotKey('e', 0, doorCol, fj, 0), 'door', ['#8d5a3b', '#e8ddc8', '#b08a54']).ok) count++;
 
-  // roof: a half-gable slope at each eave, flat deck between them
-  for (let j = 0; j < fd; j++) {
-    for (let i = 0; i < fw; i++) {
-      const key = slotKey('c', 2, fi + i, fj + j);
-      if (j === 0) { if (place(key, 'roofSlope', ROOF, 2).ok) count++; }
-      else if (j === fd - 1) { if (place(key, 'roofSlope', ROOF, 0).ok) count++; }
-      else if (place(key, 'roofFlat', ROOF).ok) count++;
-    }
-  }
-  // coping around the flat part so the edge reads
-  for (let i = 0; i < fw; i++) {
-    for (const jj of [fj + 1, fj + fd - 1]) {
-      const k = slotKey('e', 2, fi + i, jj, 0);
-      if (!lot.parts[k]) { /* left open: the slopes already close these edges */ }
-    }
-  }
-  for (let j = 1; j < fd - 1; j++) {
-    for (const ii of [fi, fi + fw]) {
-      if (place(slotKey('e', 2, ii, fj + j, 1), 'roofCoping', ROOF).ok) count++;
-    }
-  }
-
-  // railing around the roof deck rather than across the upper wall — putting
-  // it on the wall slot would replace the wall and leave the storey open
-  for (let i = 0; i < fw; i++) {
-    if (place(slotKey('e', 2, fi + i, fj, 0), 'railing', TRIM).ok) count++;
+  // roof: one piece covering the whole building, no seams to line up
+  {
+    const r = a.world.placeSpan(lot, slotKey('c', 2, fi, fj), 'roof', fw, fd,
+      { colors: ROOF, style: 'gable', free: true });
+    if (r.ok) count++;
   }
 
   // --- garden ---

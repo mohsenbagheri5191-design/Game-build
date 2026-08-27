@@ -12,6 +12,7 @@ import { getPart } from '../kit/parts.js';
 import { SWATCHES } from '../kit/colors.js';
 import { CONFIG } from '../core/config.js';
 import { openBuildDrawer } from './screens.js';
+import { ROOF_STYLES, ROOF_STYLE_NAMES } from '../kit/roof.js';
 
 export const TOOLS = [
   { id: 'place', ico: '➕', label: 'Place' },
@@ -152,6 +153,34 @@ export class BuildBar {
     storeys.append(el('span.spacer'));
     storeys.append(tap(el('button.btn.sm', { text: '🎨 Colours' }), () => this.toggleColours()));
     this.node.append(storeys);
+
+    // --- roof controls, shown only while a roof is selected ---
+    const sel = app.ui.selectedSlot && app.activeLot ? app.activeLot.parts[app.ui.selectedSlot] : null;
+    if (sel && sel.w) {
+      const roofRow = el('div.storey-row');
+      roofRow.append(el('span.tiny.dim', { text: `ROOF ${sel.w}×${sel.d}` }));
+      roofRow.append(tap(el('button.btn.sm.primary', { text: '⤢ Fit to building' }), () => {
+        const r = app.world.fitSpanToBuilding(app.activeLot, app.ui.selectedSlot);
+        if (!r.ok) { toast(r.reason, 'bad'); return; }
+        app.ui.selectedSlot = r.key;
+        app.audio.place();
+        toast(`Fitted — ${r.w} × ${r.d}`, 'good');
+        app.refreshLots(); app.refreshOverlay(); this.render();
+      }));
+      for (const st of ROOF_STYLES) {
+        const b = el(`div.storey-pill${sel.style === st ? '.on' : ''}`, { text: ROOF_STYLE_NAMES[st] });
+        b.style.minWidth = '58px';
+        tap(b, () => {
+          app.world.setSpanStyle(app.activeLot, app.ui.selectedSlot, st);
+          app.audio.snap();
+          app.refreshLots(); this.render();
+        });
+        roofRow.append(b);
+      }
+      this.node.append(roofRow);
+      this.node.append(el('div.tiny.dim', { style: { padding: '0 2px' },
+        text: 'Drag any of the four handles on the roof to resize it.' }));
+    }
 
     // --- colour picker ---------------------------------------------------
     this.colourPanel = el('div', { style: { display: app.ui.showColours ? 'block' : 'none' } });
