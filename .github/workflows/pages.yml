@@ -1,0 +1,54 @@
+# Publish the built game to GitHub Pages.
+#
+# The branch-deploy option in the Pages settings is the simpler route, but when
+# it declines to build there is nothing to look at and no way to tell why. This
+# runs as a normal workflow instead, so every deploy has a log in the Actions
+# tab and a failure says what went wrong.
+#
+# It publishes one file. The game is a single self-contained page, so the site
+# is dist/index.html copied to the root — no redirect hop, and the address is
+# just the repository URL.
+
+name: Deploy the game to Pages
+
+on:
+  push:
+    branches: ['claude/toronto-3d-map-rebuild-xp28b0']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never let two deploys race; a queued one supersedes the one before it.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assemble the site
+        run: |
+          set -eu
+          test -f dist/index.html
+          mkdir -p _site
+          cp dist/index.html _site/index.html
+          # Tell Pages not to run the built HTML through Jekyll.
+          touch _site/.nojekyll
+          ls -lh _site
+          echo "published bytes: $(wc -c < _site/index.html)"
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4
