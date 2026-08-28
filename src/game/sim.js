@@ -50,10 +50,50 @@ const NOTES = [
 // NEIGHBOURS
 // ---------------------------------------------------------------------------
 /**
+ * How far along a neighbour's town is, 0 to 1.
+ *
+ * Towns that never change make the whole neighbourhood feel like scenery, and
+ * a visit you have already made is a visit not worth making again. So each one
+ * builds, slowly, against the clock the player's own save started on — anchored
+ * to createdAt rather than to wall-clock time, so a save opened for the first
+ * time today does not begin surrounded by finished towns.
+ *
+ * Every neighbour moves at their own pace off their seed, and growth is read
+ * in whole stages rather than continuously: the point is that you come back
+ * after a few days and see something new, not that a hedge creeps a millimetre
+ * an hour.
+ */
+export const GROWTH_STAGES = 6;
+
+export function growthOf(nb, createdAt, now = Date.now()) {
+  const days = Math.max(0, (now - (createdAt || now)) / 86400000);
+  // seeded pace: the keenest builder is roughly three times the slowest
+  const pace = 0.55 + ((nb.seed >>> 11) & 255) / 255 * 1.15;
+  /*
+   * A wide head start, so day one is a real street rather than twenty-four
+   * identical building sites: some neighbours are nearly done, some are
+   * halfway, a few have only just broken ground. Everyone finishes inside a
+   * couple of weeks, and the ones who were already close finish first — which
+   * is what gives the player something new to look at early on.
+   */
+  const head = ((nb.seed >>> 3) & 255) / 255 * 6.5;
+  const t = (head + days * pace) / 9;
+  return Math.max(0, Math.min(1, t));
+}
+
+/** Growth as a whole stage, which is what the geometry keys off. */
+export function stageOf(nb, createdAt, now = Date.now()) {
+  return Math.min(GROWTH_STAGES - 1, Math.floor(growthOf(nb, createdAt, now) * GROWTH_STAGES));
+}
+
+/**
  * Generate the neighbouring builders. Deterministic from the seed, so the
  * same neighbours are in the same places every time you come back.
+ *
+ * @param createdAt when this save was started; drives how far along the
+ *                  neighbours' towns are. See growthOf().
  */
-export function generateNeighbours(city, count = CONFIG.social.neighbourCount, seed = 20260827) {
+export function generateNeighbours(city, count = CONFIG.social.neighbourCount, seed = 20260827, createdAt = Date.now()) {
   const r = rng(seed);
   const out = [];
   const used = new Set();
@@ -99,7 +139,9 @@ export function generateNeighbours(city, count = CONFIG.social.neighbourCount, s
       visits: Math.floor(r() * 900),
       blurb: '',
     };
-    n.parts = buildNeighbourTown(city, p, n);
+    n.stage = stageOf(n, createdAt);
+    n.growth = growthOf(n, createdAt);
+    n.parts = buildNeighbourTown(city, p, n, n.stage);
     n.partCount = Object.keys(n.parts).length;
     n.blurb = describeTown(n);
     out.push(n);
@@ -108,20 +150,86 @@ export function generateNeighbours(city, count = CONFIG.social.neighbourCount, s
 }
 
 /**
+ * Re-derive any neighbour whose town has moved on since it was last built.
+ *
+ * Growth is a pure function of elapsed time and the seed, so nothing is stored
+ * and nothing can drift: the same save at the same moment always produces the
+ * same neighbourhood. This just notices which ones have stepped up and rebuilds
+ * those, so a long session does not have to redo twenty-four towns to find out
+ * that none of them changed.
+ *
+ * @returns the neighbours that grew
+ */
+export function rebuildNeighbours(city, neighbours, createdAt, now = Date.now()) {
+  const grown = [];
+  for (const nb of neighbours) {
+    const stage = stageOf(nb, createdAt, now);
+    if (stage === nb.stage) continue;
+    nb.stage = stage;
+    nb.growth = growthOf(nb, createdAt, now);
+    nb.parts = buildNeighbourTown(city, city.parcelById(nb.parcelId), nb, stage);
+    nb.partCount = Object.keys(nb.parts).length;
+    nb.blurb = describeTown(nb);
+    grown.push(nb);
+  }
+  return grown;
+}
+
+/**
  * A neighbour's lot, assembled from the same kit the player uses: a walled
  * footprint with a door and windows, a roof, a fence line, and a garden.
+ *
+ * `stage` is how far along they are, 0 to GROWTH_STAGES-1. The shape of the
+ * house is fixed from the seed so it is recognisably the same house every
+ * time; what the stage decides is how much of it they have finished. A town
+ * you saw last week has the same silhouette and more in it.
+ *
+ *   0  a bare footprint, one storey, no roof yet
+ *   1  roofed, a door and windows
+ *   2  the fence goes up
+ *   3  the garden gets planted
+ *   4  a second storey if they were ever going to build one
+ *   5  the flourishes — awning, terrace, lanterns
  */
-function buildNeighbourTown(city, parcel, nb) {
+function buildNeighbourTown(city, parcel, nb, stage = GROWTH_STAGES - 1) {
   const r = rng(nb.seed);
   const g = lotGrid(parcel);
-  const parts = {};
-  const put = (key, partId, rot = 0, colors = null) => {
+
+  /*
+   * The whole finished town is planned first, in one pass, with every random
+   * draw taken in a fixed order that does not depend on the stage. Only then
+   * is it filtered down to what has been built so far.
+   *
+   * Doing it the other way round — branching on the stage while drawing — was
+   * the bug: an early stage skips a block, that block does not consume its
+   * random numbers, and every draw after it shifts. The garden came out
+   * differently at every stage, so things a visitor had already seen moved or
+   * vanished. Planning the finished town once makes growth monotone by
+   * construction: a later stage is a superset of an earlier one, always.
+   */
+  const plan = [];
+  // One slot, one part, decided by whoever plans it first. Without this the
+  // fence line runs straight over the front wall of a house that sits on the
+  // street edge, and at stage 2 the door turns into a hedge.
+  const taken = new Set();
+  const add = (when, key, partId, rot = 0, colors = null) => {
     const p = getPart(partId);
-    if (!p) return;
-    parts[key] = { part: partId, rot, free: 0, colors: colors || defaultColorsFor(p), t: 0 };
+    if (!p || taken.has(key)) return;
+    taken.add(key);
+    plan.push({ when, key, rec: { part: partId, rot, free: 0, colors: colors || defaultColorsFor(p), t: 0 } });
+  };
+  const addSpan = (when, key, partId, w, d, style, colors) => {
+    if (!getPart(partId) || taken.has(key)) return;
+    taken.add(key);
+    plan.push({ when, key, rec: { part: partId, rot: 0, free: 0, w, d, style, colors, t: 0 } });
+  };
+  // cells a span covers, so nothing is planted underneath one
+  const reserved = new Set();
+  const reserve = (i0, j0, w, d) => {
+    for (let i = i0; i < i0 + w; i++) for (let j = j0; j < j0 + d; j++) reserved.add(`${i},${j}`);
   };
 
-  // pick a footprint inside the grid, set back from the street
+  // --- the house, fixed from the seed ---
   const fw = Math.max(1, Math.min(g.cols, 2 + Math.floor(r() * 3)));
   const fd = Math.max(1, Math.min(g.rows, 2 + Math.floor(r() * 3)));
   const fi = Math.floor((g.cols - fw) * (0.2 + r() * 0.6));
@@ -134,66 +242,98 @@ function buildNeighbourTown(city, parcel, nb) {
     ['#c6d4c0', '#4d8636', '#a9cfe0'],
   ][nb.style];
 
-  const storeys = 1 + (r() < 0.42 ? 1 : 0);
+  // A second storey is decided here but only built at stage 4, so a house that
+  // was always going to be two storeys grows into the second one rather than
+  // turning into a different building.
+  const wantsUpper = r() < 0.42;
+  const storeys = 1 + (wantsUpper ? 1 : 0);
   const doorEdge = Math.floor(r() * fw);
 
   for (let s = 0; s < storeys; s++) {
+    const when = s === 0 ? 0 : 4;
     for (let i = 0; i < fw; i++) {
-      for (let j = 0; j < fd; j++) {
-        put(slotKey('c', s, fi + i, fj + j), s === 0 ? 'floor' : 'floor', 0, palette);
-      }
+      for (let j = 0; j < fd; j++) add(when, slotKey('c', s, fi + i, fj + j), 'floor', 0, palette);
     }
-    // walls around the perimeter
     for (let i = 0; i < fw; i++) {
       for (const jj of [fj, fj + fd]) {
         const isDoor = s === 0 && jj === fj && i === doorEdge;
         const wall = isDoor ? 'wallDoorway' : (r() < 0.45 ? 'wallWindow' : 'wall');
-        put(slotKey('e', s, fi + i, jj, 0), wall, 0, palette);
-        if (isDoor) put(slotKey('e', s, fi + i, jj, 0), 'wallDoorway', 0, palette);
+        add(when, slotKey('e', s, fi + i, jj, 0), wall, 0, palette);
       }
     }
     for (let j = 0; j < fd; j++) {
       for (const ii of [fi, fi + fw]) {
-        put(slotKey('e', s, ii, fj + j, 1), r() < 0.40 ? 'wallWindow' : 'wall', 0, palette);
+        add(when, slotKey('e', s, ii, fj + j, 1), r() < 0.40 ? 'wallWindow' : 'wall', 0, palette);
       }
     }
-    // corner posts
     for (const ii of [fi, fi + fw]) {
       for (const jj of [fj, fj + fd]) {
-        if (r() < 0.55) put(slotKey('k', s, ii, jj), 'cornerPost', 0, palette);
+        if (r() < 0.55) add(when, slotKey('k', s, ii, jj), 'cornerPost', 0, palette);
       }
     }
   }
-  // roof: one span over the whole footprint, the same as the player gets
-  {
-    const style = r() < 0.30 ? 'flat' : (r() < 0.30 ? 'hip' : 'gable');
-    const p = getPart('roof');
-    if (p) {
-      parts[slotKey('c', storeys, fi, fj)] = {
-        part: 'roof', rot: 0, free: 0, w: fw, d: fd, style,
-        colors: palette, t: 0,
-      };
-    }
-  }
-  // a fence along the street edge
+
+  /*
+   * The roof goes on top of the house this builder is actually making, and it
+   * goes on once — a bungalow is roofed at stage 1, a two-storey house not
+   * until its upper floor exists at stage 4. Roofing low and moving it up
+   * later would mean taking a roof off, and taking things away is what makes a
+   * growing town look like a glitching one. Until then it is a house with no
+   * roof on it yet, which is what a building site looks like.
+   */
+  const roofStyle = r() < 0.30 ? 'flat' : (r() < 0.30 ? 'hip' : 'gable');
+  addSpan(storeys > 1 ? 4 : 1, slotKey('c', storeys, fi, fj), 'roof', fw, fd, roofStyle, palette);
+
+  // --- the fence, stage 2 ---
   const fenceKind = pick(r, ['picketFence', 'lowFence', 'hedge', 'wickerFence', 'slatFence']);
   for (let i = 0; i < g.cols; i++) {
     if (r() < 0.14) continue;
-    put(slotKey('e', 0, i, 0, 0), fenceKind, 0, palette);
+    add(2, slotKey('e', 0, i, 0, 0), fenceKind, 0, palette);
   }
-  // garden: trees, a path, and something charming
+
+  /*
+   * The flourishes are planned before the garden even though they arrive last,
+   * so the ground they will stand on can be reserved. Plant first and the
+   * terrace lands on top of a flowerbed at stage 5, which is a removal — and
+   * removals are what makes a growing town feel like a glitching one.
+   */
+  if (r() < 0.7 && fj >= 1) {
+    addSpan(5, slotKey('c', 0, fi + doorEdge, fj - 1), 'awning', 1, 1,
+      pick(r, ['scallop', 'straight', 'barrel']), palette);
+    reserve(fi + doorEdge, fj - 1, 1, 1);
+  }
+  if (fi + fw < g.cols && r() < 0.6) {
+    const tw = Math.min(2, g.cols - (fi + fw)), td = Math.min(2, fd);
+    addSpan(5, slotKey('c', 0, fi + fw, fj), 'terrace', tw, td,
+      pick(r, ['plank', 'paving', 'lawn']), palette);
+    reserve(fi + fw, fj, tw, td);
+  }
+  for (let i = 0; i < fw; i++) {
+    if (r() < 0.5) add(5, slotKey('e', storeys - 1, fi + i, fj, 0), 'stringLights', 0, palette);
+  }
+
+  // --- the garden, half at stage 3 and the rest at 5 ---
   const treeKinds = ['treeRound', 'treeSlender', 'evergreen', 'bush', 'treeBlossom'];
   for (let i = 0; i < g.cols; i++) {
     for (let j = 0; j < g.rows; j++) {
       if (i >= fi && i < fi + fw && j >= fj && j < fj + fd) continue;
+      if (reserved.has(`${i},${j}`)) continue;
       const k = slotKey('c', 0, i, j);
-      if (parts[k]) continue;
       const q = r();
-      if (q < 0.20) put(k, pick(r, treeKinds));
-      else if (q < 0.34) put(k, pick(r, ['pathCobble', 'pathBrick', 'pathStepping', 'pathPaving']));
-      else if (q < 0.42) put(k, pick(r, ['flowerbed', 'bench', 'planterBox', 'pottedPlant', 'rock']));
-      else if (q < 0.46) put(k, pick(r, ['lamppost', 'birdhouse', 'mailbox', 'signpost']));
+      const late = r() > 0.62 ? 5 : 3;
+      if (q < 0.20) add(late, k, pick(r, treeKinds));
+      else if (q < 0.34) add(late, k, pick(r, ['pathCobble', 'pathBrick', 'pathStepping', 'pathPaving']));
+      else if (q < 0.42) add(late, k, pick(r, ['flowerbed', 'bench', 'planterBox', 'pottedPlant', 'rock']));
+      else if (q < 0.46) add(late, k, pick(r, ['lamppost', 'birdhouse', 'mailbox', 'signpost']));
     }
+  }
+
+  // --- filter the plan down to what has been built so far ---
+  // Nothing collides: every key was claimed once when the plan was made.
+  const parts = {};
+  for (const it of plan) {
+    if (it.when > stage) continue;
+    parts[it.key] = it.rec;
   }
   return parts;
 }
@@ -202,8 +342,26 @@ function describeTown(nb) {
   const n = nb.partCount;
   const size = n > 90 ? 'a sprawling' : n > 55 ? 'a busy' : n > 28 ? 'a tidy' : 'a small';
   const flavour = ['garden-heavy', 'tightly built', 'full of lanterns', 'all fences and hedges'][nb.style];
-  return `${size} lot, ${flavour}.`;
+  const progress = [
+    'Just broken ground.',
+    'Roof went on recently.',
+    'Fencing the place in.',
+    'Planting the garden.',
+    'Adding a second storey.',
+    'Finished, and fussing over the details.',
+  ][nb.stage ?? 5];
+  return `${size} lot, ${flavour} ${progress}`;
 }
+
+/** What changed at each step up, for the activity feed. */
+export const GROWTH_NEWS = [
+  'started building',
+  'put a roof on',
+  'fenced the lot',
+  'planted the garden',
+  'added a second storey',
+  'finished the place off',
+];
 
 // ---------------------------------------------------------------------------
 // CIVIC PROJECTS

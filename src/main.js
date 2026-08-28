@@ -20,6 +20,7 @@ import { World, lotGrid, nearestSlot, slotKey, slotValid, slotTransform, slotsAl
 import {
   generateNeighbours, processDailyLogin, processUpkeep, checkMilestones,
   receiveVisit, CIVIC_PROJECTS, civicProgress, randomNote,
+  stageOf, GROWTH_NEWS, rebuildNeighbours,
 } from './game/sim.js';
 import { getPart, partGeometry, allParts } from './kit/parts.js';
 import { spanGeometry, spanStyles, spanStyleNames } from './kit/spans.js';
@@ -148,7 +149,10 @@ class App {
     // --- audio + ui ---
     setProgress(0.86, 'Waking the neighbours');
     this.audio = new Audio(this.state.settings);
-    this.neighbours = generateNeighbours(this.city, CONFIG.social.neighbourCount);
+    // Neighbours build against the clock this save started on, so they are
+    // further along every time the player comes back.
+    this.neighbours = generateNeighbours(
+      this.city, CONFIG.social.neighbourCount, undefined, this.state.s.createdAt);
     this.sheets = new SheetHost(hudRoot);
     this.hud = new Hud(this, hudRoot);
     this.bar = new BuildBar(this, hudRoot);
@@ -237,6 +241,7 @@ class App {
     window.__save = { migrate };
     window.__scenery = { buildChunk };
     window.__sky = SKY_U;
+    window.__sim = { stageOf, rebuildNeighbours, generateNeighbours, GROWTH_NEWS };
     window.__ready = true;
   }
 
@@ -911,6 +916,7 @@ class App {
     const tick = () => {
       const delay = 55000 + Math.random() * 90000;
       this._nbTimer = setTimeout(() => {
+        this.checkNeighbourGrowth();
         if (!document.hidden && this.state.s.stats.placed >= 5) {
           const nb = this.neighbours[Math.floor(Math.random() * this.neighbours.length)];
           if (nb) {
@@ -931,6 +937,30 @@ class App {
       }, delay);
     };
     tick();
+  }
+
+  /**
+   * Has anybody's town moved on since we last looked?
+   *
+   * Growth is a pure function of elapsed time, so nothing needs to be stored
+   * to make it happen — but the player should be *told*, and the geometry has
+   * to be rebuilt for the ones that changed. Only the towns that actually
+   * stepped up are rebuilt; the rest are left alone.
+   */
+  checkNeighbourGrowth() {
+    const grown = rebuildNeighbours(this.city, this.neighbours, this.state.s.createdAt);
+    if (!grown.length) return;
+    for (const nb of grown) {
+      const news = GROWTH_NEWS[nb.stage] || 'has been busy';
+      (this.state.s.social.notes[nb.id] ||= []).push({
+        from: nb.name, text: `${nb.name} ${news} at ${nb.town}.`, t: Date.now(), growth: true,
+      });
+    }
+    this.state.touch();
+    const first = grown[0];
+    toast(`${first.name} ${GROWTH_NEWS[first.stage] || 'has been busy'}`, 'good');
+    // any of their lots on screen need redrawing
+    this.refreshLots();
   }
 
   // =========================================================================

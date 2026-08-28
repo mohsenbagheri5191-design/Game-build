@@ -867,6 +867,81 @@ rec('Weather: the real driver runs and the toggle silences it',
   weather.drivenOk && !weather.offParticles);
 
 // ---------------------------------------------------------------------------
+// 7d. neighbour towns grow, and nothing they built ever un-builds
+// ---------------------------------------------------------------------------
+console.log('--- neighbours over time ---');
+const growth = await page.evaluate(() => {
+  const a = window.__app;
+  const { generateNeighbours, stageOf, rebuildNeighbours, GROWTH_NEWS } = window.__sim;
+  const DAY = 86400000;
+  const created = a.state.s.createdAt;
+
+  // the same neighbourhood at four points in its life
+  const at = (days) => generateNeighbours(a.city, 8, undefined, created - days * DAY);
+  const day0 = at(0), day3 = at(3), day10 = at(10), day40 = at(40);
+
+  const stages = (list) => list.map((n) => n.stage);
+  const counts = (list) => list.map((n) => n.partCount);
+
+  const sum = (xs) => xs.reduce((s, x) => s + x, 0);
+  const grewOverall = sum(counts(day40)) > sum(counts(day0));
+  const stagesRise = sum(stages(day40)) > sum(stages(day3))
+    && sum(stages(day10)) >= sum(stages(day3));
+
+  // A town must only ever gain. A visitor who saw a fence last week must not
+  // find it gone: growth that takes things away reads as vandalism, not
+  // progress. The one thing that may leave is a roof, and only when a storey
+  // has gone up underneath it and a roof now sits higher — which is what
+  // actually happens when somebody builds up.
+  let shrank = 0, checked = 0;
+  const lost = [];
+  for (let i = 0; i < day0.length; i++) {
+    const seq = [day0[i], day3[i], day10[i], day40[i]];
+    for (let k = 1; k < seq.length; k++) {
+      checked++;
+      const before = seq[k - 1].parts, after = seq[k].parts;
+      for (const key of Object.keys(before)) {
+        if (after[key] && after[key].part === before[key].part) continue;
+        if (before[key].part === 'roof') {
+          // allowed only if a roof exists higher up than the one that went
+          const storey = +key.split(':')[1];
+          const higher = Object.entries(after).some(([k2, r2]) =>
+            r2.part === 'roof' && +k2.split(':')[1] > storey);
+          if (higher) continue;
+        }
+        shrank++;
+        lost.push(`${seq[k].town}: ${before[key].part}`);
+        break;
+      }
+    }
+  }
+
+  // determinism: the same save at the same instant is the same neighbourhood
+  const again = at(10);
+  const stable = JSON.stringify(counts(day10)) === JSON.stringify(counts(again));
+
+  // and the live rebuild notices a step and reports it
+  const live = generateNeighbours(a.city, 8, undefined, created);
+  const moved = rebuildNeighbours(a.city, live, created, Date.now() + 30 * DAY);
+  const newsOk = moved.length > 0 && moved.every((n) => !!GROWTH_NEWS[n.stage]);
+
+  return {
+    stages0: stages(day0), stages40: stages(day40),
+    parts0: sum(counts(day0)), parts40: sum(counts(day40)),
+    grewOverall, stagesRise, shrank, checked, stable, lost,
+    movedCount: moved.length, newsOk,
+  };
+});
+rec('Neighbours: towns are further along after time passes', growth.grewOverall && growth.stagesRise,
+  `${growth.parts0} parts on day 0 -> ${growth.parts40} on day 40`);
+rec('Neighbours: growth only ever adds (bar a roof rising a storey)', growth.shrank === 0,
+  growth.lost?.length ? growth.lost.slice(0, 5).join(', ')
+    : `${growth.checked} step comparisons, nothing lost`);
+rec('Neighbours: the same moment gives the same neighbourhood', growth.stable);
+rec('Neighbours: a step up is noticed and has something to say',
+  growth.movedCount > 0 && growth.newsOk, `${growth.movedCount} towns moved on`);
+
+// ---------------------------------------------------------------------------
 // 8. frame rate at three zoom levels
 // ---------------------------------------------------------------------------
 console.log('--- frame rate (software renderer; see report) ---');
@@ -904,13 +979,36 @@ const numbers = await page.evaluate(() => {
     neighbourParts: a.neighbours.reduce((s, n) => s + n.partCount, 0),
     // every simulated house is roofed, and roofed with a span — a part id that
     // no longer exists would be dropped silently and leave them all open
-    neighboursRoofed: a.neighbours.filter((n) =>
-      Object.values(n.parts).some((r) => r.part === 'roof' && r.w >= 1 && r.d >= 1)).length,
+    // Every finished house has exactly one roof. A house still going up may
+    // not be roofed yet — that is the growth model working, not a bug — but a
+    // house at stage 4 or beyond has its full height and must be covered.
+    // Checked against a matured neighbourhood as well as the live one, so the
+    // assertion is never vacuous just because today's towns are all young.
+    ...(() => {
+      const aged = window.__sim.generateNeighbours(
+        a.city, 24, undefined, a.state.s.createdAt - 60 * 86400000);
+      const all = a.neighbours.concat(aged);
+      const roofsOf = (n) => Object.values(n.parts).filter((r) => r.part === 'roof');
+      return {
+        neighboursFinished: all.filter((n) => (n.stage ?? 5) >= 4).length,
+        neighboursRoofed: all.filter((n) => (n.stage ?? 5) >= 4
+          && roofsOf(n).filter((r) => r.w >= 1 && r.d >= 1).length === 1).length,
+        neighboursDoubleRoofed: all.filter((n) => roofsOf(n).length > 1).length,
+        neighboursChecked: all.length,
+        neighbourStages: a.neighbours.map((n) => n.stage),
+      };
+    })(),
   };
 });
-rec('Neighbours: every simulated house is roofed',
-  numbers.neighboursRoofed === numbers.neighbours,
-  `${numbers.neighboursRoofed}/${numbers.neighbours} towns`);
+rec('Neighbours: day one is a mixed street, not all building sites',
+  new Set(numbers.neighbourStages).size >= 3,
+  `stages present: ${[...new Set(numbers.neighbourStages)].sort().join(', ')}`);
+rec('Neighbours: every finished house has exactly one roof',
+  numbers.neighboursRoofed === numbers.neighboursFinished
+  && numbers.neighboursDoubleRoofed === 0,
+  `${numbers.neighboursRoofed}/${numbers.neighboursFinished} finished and roofed, `
+  + `${numbers.neighboursChecked - numbers.neighboursFinished} still going up, `
+  + `${numbers.neighboursDoubleRoofed} double-roofed`);
 
 // ---------------------------------------------------------------------------
 // 10. no network requests at runtime
