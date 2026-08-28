@@ -808,6 +808,86 @@ rec('Distance: merging is cheaper than drawing each one',
   `${farLod.far} tris vs ${farLod.near} at full massing (${Math.round(farLod.ratio * 100)}%)`);
 
 // ---------------------------------------------------------------------------
+// 7a. the walkthrough points at the real controls
+// ---------------------------------------------------------------------------
+console.log('--- walkthrough ---');
+const coach = await page.evaluate(async () => {
+  const a = window.__app;
+  const wait = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+  const steps = [];
+
+  a.state.s.tutorialDone = false;
+  a.startTutorial(true);
+  await wait();
+
+  for (let n = 0; n < 12; n++) {
+    const card = a.hudRoot.querySelector('.coach');
+    if (!card) break;
+    await wait();
+    const spot = a.hudRoot.querySelector('.coach-spot');
+    const title = card.querySelector('h3')?.textContent || '';
+    const body = card.querySelector('p')?.textContent || '';
+    let lit = null, overlaps = false, litVisible = false, ringsTarget = false;
+    if (spot) {
+      const sr = spot.getBoundingClientRect();
+      const cr = card.getBoundingClientRect();
+      overlaps = !(sr.bottom <= cr.top || sr.top >= cr.bottom
+        || sr.right <= cr.left || sr.left >= cr.right);
+      // the ring has to be somewhere a player can actually see it
+      litVisible = sr.width > 8 && sr.height > 8
+        && sr.top >= -4 && sr.bottom <= window.innerHeight + 4
+        && sr.left >= -4 && sr.right <= window.innerWidth + 4;
+      // and it has to be around the control, not near it
+      const t = a._spotTarget;
+      lit = t ? (t.getAttribute('aria-label') || t.textContent.trim().slice(0, 18)) : null;
+      if (t) {
+        const tr = t.getBoundingClientRect();
+        ringsTarget = sr.left <= tr.left + 1 && sr.right >= tr.right - 1
+          && sr.top <= tr.top + 1 && sr.bottom >= tr.bottom - 1
+          && sr.width < tr.width + 40 && sr.height < tr.height + 40;
+      }
+    }
+    const sr2 = spot ? spot.getBoundingClientRect() : null;
+    steps.push({ title, hasBody: body.length > 20, spotted: !!spot, lit, overlaps,
+      litVisible, ringsTarget,
+      rect: sr2 ? `${Math.round(sr2.left)},${Math.round(sr2.top)} ${Math.round(sr2.width)}x${Math.round(sr2.height)}` : null });
+
+    const next = [...card.querySelectorAll('button')].find((b) => /Next|Start building/.test(b.textContent));
+    if (!next) break;
+    next.click();
+    await wait();
+  }
+
+  const cleanedUp = !a.hudRoot.querySelector('.coach')
+    && !a.hudRoot.querySelector('.coach-spot')
+    && !a.hudRoot.querySelector('.coach-nib');
+  const marked = a.state.s.tutorialDone === true;
+
+  // and it can be replayed, then dismissed, without leaving anything behind
+  a.startTutorial(true);
+  await wait();
+  const replayed = !!a.hudRoot.querySelector('.coach');
+  a.endTutorial();
+  const afterEnd = !a.hudRoot.querySelector('.coach') && !a.hudRoot.querySelector('.coach-spot');
+  a.sheets.closeAll?.();
+
+  return { steps, cleanedUp, marked, replayed, afterEnd };
+});
+const spotSteps = coach.steps.filter((s) => s.spotted);
+rec('Walkthrough: every step has a title and something to say',
+  coach.steps.length >= 6 && coach.steps.every((s) => s.title && s.hasBody),
+  `${coach.steps.length} steps`);
+rec('Walkthrough: the steps that name a control ring it, on screen',
+  spotSteps.length >= 4 && spotSteps.every((s) => s.litVisible && s.ringsTarget),
+  spotSteps.map((s) => `${s.lit}${s.litVisible ? '' : ' OFFSCREEN'}${s.ringsTarget ? '' : ' MISSED'}`).join(' · '));
+rec('Walkthrough: the card never sits on top of what it is pointing at',
+  spotSteps.every((s) => !s.overlaps));
+rec('Walkthrough: it finishes, marks itself done and leaves nothing behind',
+  coach.cleanedUp && coach.marked);
+rec('Walkthrough: it replays from Help and can be dismissed',
+  coach.replayed && coach.afterEnd);
+
+// ---------------------------------------------------------------------------
 // 7b. the touch camera: every gesture, driven by real pointer events
 // ---------------------------------------------------------------------------
 console.log('--- finger navigation ---');

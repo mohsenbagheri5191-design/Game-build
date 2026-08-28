@@ -455,6 +455,44 @@ select.sel {
 }
 .coach h3 { margin: 0 0 5px; font-size: var(--fs-lg); font-weight: 800; }
 .coach p { margin: 0 0 10px; font-size: var(--fs-sm); color: var(--ink-2); line-height: 1.45; }
+.coach.pinned { bottom: auto; }
+
+/*
+ * The spotlight. A ring around the control the current step is talking about,
+ * with the rest of the screen darkened by one enormous spread shadow — far
+ * cheaper than four overlay panels and it never leaves a seam at the corners.
+ * It is pointer-events: none throughout, so the control it points at is still
+ * the control you tap.
+ */
+.coach-spot {
+  position: absolute; z-index: 19; pointer-events: none;
+  border-radius: 14px;
+  border: 2px solid var(--accent);
+  box-shadow: 0 0 0 9999px rgba(6, 10, 14, 0.62), 0 0 18px 2px var(--accent);
+  transition: top 0.26s cubic-bezier(0.22, 1, 0.36, 1), left 0.26s cubic-bezier(0.22, 1, 0.36, 1),
+              width 0.26s cubic-bezier(0.22, 1, 0.36, 1), height 0.26s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.coach-spot::after {
+  content: ''; position: absolute; inset: -7px;
+  border-radius: 20px; border: 2px solid var(--accent);
+  animation: coachpulse 1.7s ease-out infinite;
+}
+@keyframes coachpulse {
+  0%   { transform: scale(0.94); opacity: 0.9; }
+  70%  { transform: scale(1.16); opacity: 0; }
+  100% { transform: scale(1.16); opacity: 0; }
+}
+/* the little nib on the card, pointing at whatever is lit up */
+.coach-nib {
+  position: absolute; z-index: 21; pointer-events: none;
+  width: 0; height: 0; border: 9px solid transparent;
+}
+.coach-nib.up { border-bottom-color: var(--accent); }
+.coach-nib.down { border-top-color: var(--accent); }
+@media (prefers-reduced-motion: reduce) {
+  .coach-spot { transition: none; }
+  .coach-spot::after { animation: none; opacity: 0.55; transform: none; }
+}
 
 /* ---------------------------------------------------------- site card compact */
 .sitecard .addr { font-size: var(--fs-xxl); font-weight: 900; letter-spacing: -0.02em; line-height: 1.08; }

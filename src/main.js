@@ -966,42 +966,146 @@ class App {
   // =========================================================================
   // TUTORIAL
   // =========================================================================
+  /**
+   * The first-run walkthrough.
+   *
+   * Six steps, and each one lights up the control it is talking about rather
+   * than describing it and hoping. "Open the catalogue" is a sentence you have
+   * to go and act on; a ring around the Catalogue button is the answer itself.
+   * The spotlight never covers the thing it points at and never intercepts a
+   * tap, so you can follow the step while it is on screen.
+   *
+   * It is replayable from Help, and `?notut` skips it.
+   */
   startTutorial(replay = false) {
-    if (this._coach) this._coach.remove();
+    this.endTutorial();
     const steps = [
-      { t: 'Welcome to Toronto', b: 'This is the real downtown — real streets, real names, real block structure. Drag with one finger to look around, pinch to zoom.' },
-      { t: 'This is your site', b: 'You have been given an open lot to start on. The 🏠 button always brings you back to it.' },
-      { t: 'Pick something to build with', b: 'Open the catalogue and tap any part to hold it. Walls go on edges, floors and objects go in cells, posts on corners.' },
-      { t: 'Drag to lay a run', b: 'In build mode, drag one finger across your lot to lay a whole wall or path in a single gesture. The running cost shows as you go.' },
-      { t: 'Make it yours', b: 'Every part has its own colours — nothing is pre-themed. Paint, erase, move and rotate are all one tap away, and undo is always free.' },
-      { t: 'Want more room?', b: 'Tap any other lot on the map to see its address and price. Claiming it demolishes what stands there and clears the ground.' },
+      { t: 'Welcome to Toronto',
+        b: 'This is the real downtown — real streets, real names, real block structure. Drag with one finger to look around, pinch to zoom.' },
+      { t: 'This is your site',
+        b: 'You have been given an open lot to start on. This button always brings you back to it.',
+        at: '[aria-label="Go to my site"]' },
+      { t: 'Turn on build mode',
+        b: 'This is the switch between looking around and building. The build bar appears along the bottom.',
+        at: '[aria-label="Build mode"]',
+        before: () => { if (this.mode !== 'build' && this.activeLot) this.enterBuild(); } },
+      // Deliberately no `before` here. Opening the catalogue for them covers
+      // the button being pointed at — the whole point is that they see where
+      // it is and reach for it themselves.
+      { t: 'Pick something to build with',
+        b: 'Tap Catalogue and choose any part to hold it. Walls go on edges, floors and objects go in cells, posts on corners.',
+        at: '#buildbar .held .btn' },
+      { t: 'Drag to lay a run',
+        b: 'With Place selected, drag one finger across your lot to lay a whole wall or path in a single gesture. The running cost shows as you go.',
+        at: '#buildbar [aria-label="Place"]' },
+      { t: 'Make it yours',
+        b: 'Every part has its own colours — nothing is pre-themed. Paint, erase, move and rotate are all one tap away, and undo is always free.',
+        at: '#buildbar .storey-row .btn' },
+      { t: 'Want more room?',
+        b: 'Tap any other lot on the map to see its address and price. Claiming it demolishes what stands there and clears the ground.' },
     ];
+
     let i = 0;
+    const finish = () => {
+      steps[i - 1]?.after?.();
+      this.endTutorial();
+      this.state.s.tutorialDone = true;
+      this.state.touch();
+      if (!replay) toast('Have fun. Everything is in the ☰ menu.', 'good');
+    };
+
     const show = () => {
       if (this._coach) this._coach.remove();
-      if (i >= steps.length) {
-        this.state.s.tutorialDone = true;
-        this.state.touch();
-        this._coach = null;
-        if (!replay) toast('Have fun. Everything is in the ☰ menu.', 'good');
-        return;
-      }
+      this._clearSpot();
+      if (i >= steps.length) { finish(); return; }
       const s = steps[i];
+      s.before?.();
+
       this._coach = el('div.coach', {},
         el('h3', { text: s.t }),
         el('p', { text: s.b }),
         el('div.row', {},
           el('span.tiny.dim', { text: `${i + 1} / ${steps.length}` }),
           el('span.spacer'),
-          tap(el('button.btn.sm.ghost', { text: 'Skip' }), () => { i = steps.length; show(); }),
+          tap(el('button.btn.sm.ghost', { text: 'Skip' }), () => { steps[i].after?.(); i = steps.length; show(); }),
           tap(el('button.btn.sm.primary', { text: i === steps.length - 1 ? 'Start building' : 'Next' }), () => {
+            steps[i].after?.();
             i++;
-            if (i === 2) openBuildDrawer(this);
             show();
           })));
       this.hudRoot.append(this._coach);
+
+      // The control may only exist once `before` has run and the bar has
+      // re-rendered, so look for it on the next frame rather than now.
+      requestAnimationFrame(() => this._spotlight(s.at));
     };
+    this._coachStep = () => show();
     show();
+  }
+
+  /** Ring the element a step is pointing at, and sit the card clear of it. */
+  _spotlight(selector) {
+    this._clearSpot();
+    if (!selector || !this._coach) return;
+    const target = this.hudRoot.querySelector(selector);
+    if (!target) return;                       // step still reads fine without it
+    const host = this.hudRoot.getBoundingClientRect();
+    const r = target.getBoundingClientRect();
+    if (r.width < 2 || r.height < 2) return;   // hidden or not laid out
+
+    const pad = 7;
+    const top = r.top - host.top - pad;
+    const left = r.left - host.left - pad;
+    const w = r.width + pad * 2;
+    const h = r.height + pad * 2;
+
+    this._spotTarget = target;
+    this._spot = el('div.coach-spot', { style: {
+      top: `${top}px`, left: `${left}px`, width: `${w}px`, height: `${h}px`,
+    } });
+    this.hudRoot.append(this._spot);
+
+    // Put the card on whichever side of the target has more room, so the
+    // spotlight is never behind the words describing it.
+    const card = this._coach;
+    const ch = card.getBoundingClientRect().height || 150;
+    const above = top;
+    const below = host.height - (top + h);
+    card.classList.add('pinned');
+    if (below >= ch + 24 || below >= above) {
+      card.style.top = `${Math.min(top + h + 14, host.height - ch - 12)}px`;
+      card.style.bottom = 'auto';
+    } else {
+      card.style.top = `${Math.max(12, top - ch - 14)}px`;
+      card.style.bottom = 'auto';
+    }
+
+    // a nib on the card pointing back at the ring
+    const cardTop = parseFloat(card.style.top);
+    const pointsDown = cardTop > top;
+    this._nib = el(`div.coach-nib.${pointsDown ? 'up' : 'down'}`, { style: {
+      left: `${Math.max(20, Math.min(host.width - 30, left + w / 2 - 9))}px`,
+      top: pointsDown ? `${cardTop - 18}px` : `${cardTop + ch}px`,
+    } });
+    this.hudRoot.append(this._nib);
+  }
+
+  _clearSpot() {
+    this._spot?.remove(); this._spot = null;
+    this._spotTarget = null;
+    this._nib?.remove(); this._nib = null;
+    if (this._coach) {
+      this._coach.classList.remove('pinned');
+      this._coach.style.top = '';
+      this._coach.style.bottom = '';
+    }
+  }
+
+  endTutorial() {
+    this._clearSpot();
+    this._coach?.remove();
+    this._coach = null;
+    this._coachStep = null;
   }
 
   // =========================================================================
