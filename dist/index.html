@@ -142,8 +142,21 @@ hr.sep { border: none; border-top: 1px solid var(--line); margin: 12px 0; }
 .kv b { font-weight: 700; }
 
 /* ---------------------------------------------------------------------- HUD */
+/*
+ * The HUD layer floats over the canvas, so it must be transparent to touch
+ * except where there is actually a control.
+ *
+ * `:where()` matters here and is not decoration. Written as `#hud > *` this
+ * rule carries an ID's specificity, which quietly beat every
+ * `pointer-events: none` a child declared for itself — and the closed sheet
+ * scrim is a full-screen child. The result was an invisible sheet of glass
+ * over the entire game: every touch landed on it, the canvas never saw a
+ * thing, and nothing in the world responded at all. `:where()` contributes
+ * zero specificity, so a child that says it is transparent to touch is
+ * believed.
+ */
 #hud { position: absolute; inset: 0; pointer-events: none; }
-#hud > * { pointer-events: auto; }
+:where(#hud) > * { pointer-events: auto; }
 
 .hud-top {
   position: absolute; top: calc(var(--safe-t) + 8px); left: calc(var(--safe-l) + 8px);

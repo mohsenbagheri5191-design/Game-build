@@ -925,6 +925,40 @@ const gestures = await page.evaluate(async () => {
   cam.frame(0, 900, 400, 1.2, 0.7, true);
   settle(80);
 
+  /*
+   * --- 0. the world is reachable at all ---------------------------------
+   *
+   * Every other check here dispatches its events straight at the canvas,
+   * which proves the camera maths but skips hit-testing entirely — so it
+   * cannot see an overlay sitting in front of the game. One did: the closed
+   * sheet scrim, invisible and full-screen, swallowing every touch. The
+   * camera worked perfectly and no finger could ever reach it.
+   *
+   * So: ask the document what is actually under a spread of points, the way
+   * a finger would find out.
+   */
+  {
+    a.sheets.closeAll?.();
+    await wait(260);
+    const pts = [];
+    for (const fx of [0.2, 0.5, 0.8]) {
+      for (const fy of [0.28, 0.45, 0.62]) {
+        pts.push([Math.round(window.innerWidth * fx), Math.round(window.innerHeight * fy)]);
+      }
+    }
+    const hits = pts.map(([x, y]) => {
+      const e = document.elementFromPoint(x, y);
+      return { x, y, tag: e?.tagName || 'none', cls: e?.className || '' };
+    });
+    const blocked = hits.filter((h) => h.tag !== 'CANVAS');
+    out.reach = {
+      ok: blocked.length === 0,
+      detail: blocked.length
+        ? `blocked at ${blocked.length}/${hits.length} points by ${[...new Set(blocked.map((b) => b.cls || b.tag))].join(', ')}`
+        : `${hits.length} points across the screen, all reach the canvas`,
+    };
+  }
+
   // --- 1. one finger drags the view round ---------------------------------
   {
     const before = state();
@@ -1199,6 +1233,8 @@ const gestures = await page.evaluate(async () => {
 
   return out;
 });
+rec('Touch: nothing invisible is covering the world', gestures.reach.ok,
+  gestures.reach.detail);
 rec('Touch: one finger drags the view round', gestures.orbit.headingMoved
   && gestures.orbit.pitchMoved && gestures.orbit.finite,
   `heading ${gestures.orbit.dHeading} rad, pitch ${gestures.orbit.dPitch} rad`);
