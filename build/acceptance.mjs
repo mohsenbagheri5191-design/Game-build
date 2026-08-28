@@ -808,6 +808,65 @@ rec('Distance: merging is cheaper than drawing each one',
   `${farLod.far} tris vs ${farLod.near} at full massing (${Math.round(farLod.ratio * 100)}%)`);
 
 // ---------------------------------------------------------------------------
+// 7c. weather reaches the world, not just the particle cloud
+// ---------------------------------------------------------------------------
+console.log('--- weather ---');
+const weather = await page.evaluate(async () => {
+  const a = window.__app;
+  const sky = window.__sky;
+  const st = a.stage;
+  const snap = () => ({
+    wet: sky.uWet.value, lay: sky.uSnowLay.value,
+    sun: st.sun.intensity, hemi: st.hemi.intensity,
+    fogFar: st.scene.fog.far, fogCol: st.scene.fog.color.getHex(),
+    overcast: st.overcast || 0,
+    particles: !!(st.weather && st.weather.visible),
+  });
+
+  // settle at clear weather first
+  st.setTimeOfDay(11, 0.8);
+  sky.uWet.value = 0; sky.uSnowLay.value = 0;
+  st.overcast = 0; st.applyOvercast();
+  const clear = snap();
+
+  // now force a downpour and let the surfaces catch up
+  const realUpdate = st.updateWeather.bind(st);
+  sky.uWet.value = 1;
+  st.overcast = 1;
+  st.applyOvercast();
+  const wet = snap();
+
+  // and a snowfall
+  sky.uWet.value = 0; sky.uSnowLay.value = 1;
+  st.overcast = 0.8; st.applyOvercast();
+  const snowy = snap();
+
+  // put it back the way we found it and prove the real driver still runs
+  sky.uWet.value = 0; sky.uSnowLay.value = 0;
+  st.overcast = 0; st.applyOvercast();
+  realUpdate(true, 0.8, 12);
+  const drivenOk = Number.isFinite(sky.uWet.value) && Number.isFinite(sky.uSnowLay.value);
+
+  // the settings toggle must still silence it
+  realUpdate(false, 0.1, 12);
+  const offParticles = !!(st.weather && st.weather.visible);
+
+  return { clear, wet, snowy, drivenOk, offParticles };
+});
+rec('Weather: rain dims the sun', weather.wet.sun < weather.clear.sun * 0.75,
+  `${weather.clear.sun.toFixed(2)} -> ${weather.wet.sun.toFixed(2)}`);
+rec('Weather: rain lifts the ambient', weather.wet.hemi > weather.clear.hemi,
+  `${weather.clear.hemi.toFixed(2)} -> ${weather.wet.hemi.toFixed(2)}`);
+rec('Weather: rain closes the fog in', weather.wet.fogFar < weather.clear.fogFar * 0.8,
+  `${Math.round(weather.clear.fogFar)} m -> ${Math.round(weather.wet.fogFar)} m`);
+rec('Weather: rain greys the horizon', weather.wet.fogCol !== weather.clear.fogCol,
+  `#${weather.clear.fogCol.toString(16)} -> #${weather.wet.fogCol.toString(16)}`);
+rec('Weather: snow reaches the surfaces', weather.snowy.lay > 0.5 && weather.snowy.sun < weather.clear.sun,
+  `snow cover ${weather.snowy.lay.toFixed(2)}, sun ${weather.snowy.sun.toFixed(2)}`);
+rec('Weather: the real driver runs and the toggle silences it',
+  weather.drivenOk && !weather.offParticles);
+
+// ---------------------------------------------------------------------------
 // 8. frame rate at three zoom levels
 // ---------------------------------------------------------------------------
 console.log('--- frame rate (software renderer; see report) ---');

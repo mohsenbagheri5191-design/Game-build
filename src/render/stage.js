@@ -21,6 +21,10 @@ const FOG_NIGHT = new THREE.Color(0x141a2e);
 const AMB_DAY = new THREE.Color(0xd3e3ec);
 const AMB_NIGHT = new THREE.Color(0x4a5880);
 
+// Overcast: the sun becomes one big grey softbox. Cooler and much flatter.
+const OVERCAST_LIGHT = new THREE.Color(0xd6dde6);
+const OVERCAST_SKY = new THREE.Color(0xa8b4bf);
+
 export class Stage {
   constructor(canvas, opts = {}) {
     this.canvas = canvas;
@@ -167,6 +171,15 @@ export class Stage {
     this.renderer.setClearColor(fog, 1);
     this.scene.fog.near = this.fogFar * 0.34;
     this.scene.fog.far = this.fogFar;
+
+    // Remember the clear-sky answer. Overcast is applied on top of it, so a
+    // shower at dusk is still dusk rather than a flat grey override.
+    this.clearSky = {
+      sun: this.sun.intensity, sunColor: this.sun.color.clone(),
+      hemi: this.hemi.intensity, hemiColor: this.hemi.color.clone(),
+      fog, fogFar: this.fogFar,
+    };
+    this.applyOvercast();
   }
 
   /** Keep the shadow frustum tight around wherever the camera is looking. */
@@ -254,14 +267,33 @@ export class Stage {
    * @param seasonT  0 at midwinter, 1 at midsummer
    */
   updateWeather(enabled, seasonT, hour) {
-    if (!enabled) { if (this.weather) this.weather.visible = false; return; }
-    this.initWeather();
-    // a stable per-day roll, so it is not raining every time you look
+    // How much weather there is, whether or not the player draws the particles.
+    // A stable per-day roll, so it is not raining every time you look.
     const day = Math.floor(Date.now() / 86400000);
     const roll = ((Math.imul(day, 0x9e3779b1) >>> 8) & 1023) / 1023;
     const snow = seasonT < 0.34 ? 1 : 0;
     const chance = snow ? 0.45 : 0.28;
-    const amount = roll < chance ? (0.35 + roll * 1.4) : 0;
+    const amount = enabled && roll < chance ? Math.min(1, 0.35 + roll * 1.4) : 0;
+
+    /*
+     * Weather is not the particles. Particles are the least of it — what makes
+     * rain read as rain is that the light goes flat, the distance closes in and
+     * the road turns dark and shiny. So the amount drives the whole scene, and
+     * the surfaces keep their state a good while after the shower passes:
+     * ground stays wet for a bit, and snow lies until it is drawn down.
+     */
+    const wetTarget = amount * (1 - snow);
+    const layTarget = amount * snow;
+    // wetting is quick, drying is slow; snow settles slowly and melts slower
+    const wet = SKY_U.uWet.value;
+    SKY_U.uWet.value = wet + (wetTarget - wet) * (wetTarget > wet ? 0.020 : 0.004);
+    const lay = SKY_U.uSnowLay.value;
+    SKY_U.uSnowLay.value = lay + (layTarget - lay) * (layTarget > lay ? 0.006 : 0.002);
+    this.overcast = Math.max(SKY_U.uWet.value, SKY_U.uSnowLay.value * 0.8);
+    this.applyOvercast();
+
+    if (!enabled) { if (this.weather) this.weather.visible = false; return; }
+    this.initWeather();
     const u = this.weather.material.uniforms;
     u.uSnow.value += (snow - u.uSnow.value) * 0.05;
     u.uAmount.value += (amount - u.uAmount.value) * 0.02;
@@ -270,6 +302,32 @@ export class Stage {
       Math.max(0, this.camera.position.y - 30),
       Math.round(this.camera.position.z / 10) * 10);
     this.weather.visible = u.uAmount.value > 0.01;
+  }
+
+  /**
+   * Overcast: the sun goes down and diffuse, and the fog closes in.
+   *
+   * Applied on top of whatever the clock already decided rather than instead
+   * of it, so dusk in the rain is still dusk. setTimeOfDay stashes the clear-
+   * sky values and this scales them.
+   */
+  applyOvercast() {
+    const o = this.overcast || 0;
+    if (!this.clearSky) return;
+    const c = this.clearSky;
+    this.sun.intensity = c.sun * (1 - o * 0.62);
+    this.sun.color.copy(c.sunColor).lerp(OVERCAST_LIGHT, o * 0.7);
+    // the sky bounces more light down when it is one big grey softbox
+    this.hemi.intensity = c.hemi * (1 + o * 0.30);
+    this.hemi.color.copy(c.hemiColor).lerp(OVERCAST_SKY, o * 0.75);
+    const fog = c.fog.clone().lerp(OVERCAST_SKY, o * 0.62);
+    this.scene.fog.color.copy(fog);
+    this.renderer.setClearColor(fog, 1);
+    // visibility drops sharply in rain and further in snow
+    const close = 1 - o * 0.46;
+    this.scene.fog.far = c.fogFar * close;
+    this.scene.fog.near = c.fogFar * 0.34 * close * (1 - o * 0.25);
+    if (this.skyMat) this.skyMat.uniforms.uOvercast.value = o;
   }
 
   render(dt) {

@@ -23,6 +23,11 @@ export const SKY_U = {
   uWindowCool: { value: new THREE.Color(0xbfe0ff) },
   uTime: { value: 0 },
   uSelect: { value: new THREE.Color(0x64e6c8) },
+  // Weather, as two numbers every surface reads. Falling particles on their
+  // own read as confetti; what makes weather land is what it does to the
+  // ground you are standing on and the light you are standing in.
+  uWet: { value: 0 },          // rain has soaked the surfaces
+  uSnowLay: { value: 0 },      // snow has settled on upward faces
 };
 
 const COMMON_ATTRS = /* glsl */`
@@ -81,6 +86,8 @@ export function makeSceneryMaterial() {
         varying float vTone;
         varying vec3 vNrmW;
         uniform float uNight;
+        uniform float uWet;
+        uniform float uSnowLay;
         uniform vec3 uWindowWarm;
         uniform vec3 uWindowCool;
 
@@ -150,6 +157,14 @@ export function makeSceneryMaterial() {
           float nightTerm = mix(avg, inWin * lit, detail);
           totalEmissiveRadiance += glow * nightTerm * uNight * 1.25;
         }
+
+        // Weather lands on the massing too. Rain darkens everything a little
+        // and the walls more than the roofs, which is where it runs down;
+        // snow does the opposite and settles on whatever points up.
+        diffuseColor.rgb = mix(diffuseColor.rgb,
+          diffuseColor.rgb * vec3(0.72, 0.75, 0.80), uWet * (0.35 + wallness * 0.35));
+        float upFace = smoothstep(0.35, 0.80, vNrmW.y);
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.95, 0.96, 0.99), uSnowLay * upFace * 0.85);
       `);
   };
   m.customProgramCacheKey = () => 'scenery';
@@ -170,12 +185,30 @@ export function makeGroundMaterial() {
         varying float vShade;
         varying vec3 vWorld;
         uniform float uNight;
+        uniform float uTime;
+        uniform float uWet;
+        uniform float uSnowLay;
       `)
       .replace('#include <color_fragment>', /* glsl */`
         #include <color_fragment>
         diffuseColor.rgb *= vShade;
         // roads read slightly darker and cooler after dark
         diffuseColor.rgb *= mix(1.0, 0.74, uNight);
+
+        // Rain. Wet ground goes darker and cooler, and asphalt more than
+        // grass, because a road holds a film of water and a lawn drinks it.
+        float lum = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
+        float hard = 1.0 - smoothstep(0.30, 0.62, lum);
+        float w = uWet * mix(0.35, 1.0, hard);
+        diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.56, 0.60, 0.68), w);
+        // a broad wet sheen, broken up so it is not a mirror
+        float sheen = sin(vWorld.x * 0.09 + uTime * 0.5) * sin(vWorld.z * 0.07 - uTime * 0.4);
+        diffuseColor.rgb += w * 0.045 * (0.5 + sheen * 0.5) * vec3(0.7, 0.8, 1.0);
+
+        // Snow. It lies on the flat and gets ploughed off the roads, so the
+        // dark surfaces stay dark and everything else goes white.
+        float lay = uSnowLay * mix(1.0, 0.22, hard);
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.93, 0.945, 0.98), lay * 0.88);
       `);
   };
   m.customProgramCacheKey = () => 'ground';
@@ -250,12 +283,20 @@ export function makePartMaterial(opt = {}) {
         varying vec3 vZoneColor;
         varying float vFlags;
         varying float vEmis;
+        varying vec3 vNrmW;
       `,
       /* glsl */`
         vZoneColor = zone < 0.5 ? aC0 : (zone < 1.5 ? aC1 : aC2);
         vFlags = aFlags;
         // flag bit 1 = this zone glows at night (lamps, lanterns, string lights)
         vEmis = (zone > 1.5 && mod(floor(aFlags), 2.0) > 0.5) ? 1.0 : 0.0;
+        // world normal, so weather knows which way this face is looking. Parts
+        // are instanced, so the instance transform has to go in as well.
+        #ifdef USE_INSTANCING
+          vNrmW = normalize(mat3(modelMatrix) * mat3(instanceMatrix) * objectNormal);
+        #else
+          vNrmW = normalize(mat3(modelMatrix) * objectNormal);
+        #endif
       `);
 
     shader.fragmentShader = shader.fragmentShader
@@ -266,15 +307,28 @@ export function makePartMaterial(opt = {}) {
         varying vec3 vZoneColor;
         varying float vFlags;
         varying float vEmis;
+        varying vec3 vNrmW;
         uniform float uNight;
         uniform float uGhost;
         uniform vec3 uGhostColor;
         uniform vec3 uLampWarm;
         uniform float uTime;
+        uniform float uWet;
+        uniform float uSnowLay;
       `)
       .replace('#include <color_fragment>', /* glsl */`
         #include <color_fragment>
         diffuseColor.rgb *= vZoneColor * vShade;
+
+        // Weather settles on what the player built, not only on the city.
+        // Rain darkens the whole piece; snow only lies where a face points up,
+        // so a roof whitens and the walls under it do not.
+        diffuseColor.rgb = mix(diffuseColor.rgb,
+          diffuseColor.rgb * vec3(0.74, 0.77, 0.82), uWet * 0.55);
+        float upFace = smoothstep(0.30, 0.78, vNrmW.y);
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.95, 0.96, 0.99),
+          uSnowLay * upFace * 0.82);
+
         if (uGhost > 0.5) {
           diffuseColor.rgb = mix(diffuseColor.rgb, uGhostColor, 0.55);
         }
@@ -311,6 +365,8 @@ export function makeSkyMaterial() {
       uZenithNight: { value: new THREE.Color(0x060a18) },
       uDusk: { value: new THREE.Color(0xff9d5c) },
       uDuskAmt: { value: 0 },
+      uOvercast: { value: 0 },
+      uOvercastCol: { value: new THREE.Color(0xa8b4bf) },
     },
     vertexShader: /* glsl */`
       varying vec3 vDir;
@@ -323,7 +379,8 @@ export function makeSkyMaterial() {
     `,
     fragmentShader: /* glsl */`
       varying vec3 vDir;
-      uniform float uNight, uTime, uDuskAmt;
+      uniform float uNight, uTime, uDuskAmt, uOvercast;
+      uniform vec3 uOvercastCol;
       uniform vec3 uSunDir, uHorizonDay, uZenithDay, uHorizonNight, uZenithNight, uDusk;
 
       float h21(vec2 p){
@@ -343,13 +400,29 @@ export function makeSkyMaterial() {
         float band = pow(1.0 - abs(vDir.y), 3.0);
         col = mix(col, uDusk, uDuskAmt * band * (0.35 + 0.65 * pow(sunAlign, 2.0)));
 
-        // sun / moon disc + bloom
+        // sun / moon disc + bloom, hidden behind cloud
+        float clear = 1.0 - uOvercast;
         float disc = smoothstep(0.9985, 0.9995, sunAlign);
         float bloom = pow(sunAlign, 220.0);
-        col += mix(vec3(1.0, 0.94, 0.78), vec3(0.8, 0.86, 1.0), uNight) * (disc * 1.6 + bloom * 0.5);
+        col += mix(vec3(1.0, 0.94, 0.78), vec3(0.8, 0.86, 1.0), uNight)
+             * (disc * 1.6 + bloom * 0.5) * clear;
 
-        // stars
-        if (uNight > 0.02 && vDir.y > 0.0) {
+        /*
+         * Cloud cover. Not a texture — a soft ramp toward one grey that is
+         * heaviest overhead and lifts a little at the horizon, which is how an
+         * overcast sky actually reads: brightest where it is thinnest. A couple
+         * of very broad sine bands keep it from being a flat wash.
+         */
+        if (uOvercast > 0.001) {
+          float lump = sin(vDir.x * 2.7 + uTime * 0.02) * sin(vDir.z * 2.1 - uTime * 0.015);
+          vec3 cloud = uOvercastCol * (0.94 + lump * 0.06);
+          cloud = mix(cloud * 1.06, cloud * 0.86, pow(t, 0.8));
+          cloud *= mix(1.0, 0.16, uNight);
+          col = mix(col, cloud, uOvercast * (0.55 + 0.35 * pow(t, 0.7)));
+        }
+
+        // stars — cloud puts them out
+        if (uNight > 0.02 && vDir.y > 0.0 && uOvercast < 0.85) {
           vec2 sp = vDir.xz / max(0.08, vDir.y + 0.35) * 90.0;
           vec2 cell = floor(sp);
           float r = h21(cell);
@@ -357,7 +430,7 @@ export function makeSkyMaterial() {
             vec2 f = fract(sp) - 0.5;
             float d = 1.0 - smoothstep(0.0, 0.13, length(f));
             float tw = 0.55 + 0.45 * sin(uTime * 1.7 + r * 62.0);
-            col += vec3(0.88, 0.92, 1.0) * d * tw * uNight * (0.5 + r * 1.4);
+            col += vec3(0.88, 0.92, 1.0) * d * tw * uNight * (0.5 + r * 1.4) * clear;
           }
         }
         gl_FragColor = vec4(col, 1.0);
