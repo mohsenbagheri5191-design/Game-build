@@ -1,9 +1,11 @@
 # Definition of Done — results
 
-Run with `npm run test` against the shipped `dist/index.html` (minified).
-Full machine-readable output in `dist/acceptance/report.json`.
+`npm test` runs two suites. `build/test-normals.mjs` checks the geometry
+itself, offline and exactly, in a second or two. `build/acceptance.mjs` drives
+the shipped `dist/index.html` in a real browser. Machine-readable output in
+`dist/acceptance/report.json`.
 
-## Automated — 81 / 81
+## Automated — 102 / 102, plus a 33-check geometry audit
 
 ### 1. Every screen opens and closes without error
 
@@ -17,14 +19,14 @@ Milestones · Help · About · Site card · Context menu · Visit · Splash
 ### 2. Every catalogue item places, colours, rotates, erases and persists
 
 ```
-Catalogue: every item places     98/98
-Catalogue: every item colours    98/98
-Catalogue: every item rotates    98/98
-Catalogue: every item erases     98/98
-Catalogue: every item renders    98 instanced meshes
+Catalogue: every item places    101/101
+Catalogue: every item colours   101/101
+Catalogue: every item rotates   101/101
+Catalogue: every item erases    101/101
+Catalogue: every item renders   101 instanced meshes
 ```
 
-Each of the 98 parts is placed into a real slot of its own kind, painted,
+Each of the 101 parts is placed into a real slot of its own kind, painted,
 rotated, checked for non-empty geometry, rendered, then erased.
 
 ### 3. Every tool works, including continuous drag
@@ -61,15 +63,98 @@ Roof: resizes from all four sides       grid 7x12, roof at 2,5
 Roof: will not shrink into nothing
 Roof: renders as a single mesh          roof|1x2|gable
 Roof: erase refunds for its whole area
-Neighbours: every simulated house is roofed   24/24 towns
 ```
 
-The last line is a regression guard with a scar behind it. The simulated
-neighbours used to roof their houses by tiling the old ridge part; when that
-part was removed the generator asked for an id that no longer existed and the
-part placer, which ignores unknown ids by design, silently dropped it. Every
-neighbour's house lost its roof and nothing failed. The check now asserts each
-of the 24 towns has a real span roof on it.
+Three more parts work the same way, on the same machinery — an **awning**
+(scalloped, straight, curved or box, with striped panels and support arms), a
+**terrace** (timber, paving or planted, boards running the full length of the
+span), and a **floor plate** (a whole storey of floor in one piece). All four
+are checked at every style and every size from 1×1 to 8×8.
+
+```
+Span: roof       builds at every style and size · tracks the size asked for
+Span: awning     builds at every style and size · tracks the size asked for
+Span: terrace    builds at every style and size · tracks the size asked for
+Span: floorPlate builds at every style and size · tracks the size asked for
+```
+
+### 3c. Every face points the right way
+
+Flat shading takes the normal straight from the winding order, so a face wound
+the wrong way is lit as though the light were behind it. It does not throw, it
+does not vanish — it just sits a shade flatter than it should, which is exactly
+the kind of defect that survives every other test and every screenshot.
+
+Chasing one inside-out face on the new awning turned up the same defect
+everywhere: `box`, `chamfer`, `cylinder`, `cone`, `wedge`, `extrude` and
+`lathe` all emitted faces wound inward. Effectively the whole kit and all the
+scenery had been lit from behind since the first commit.
+
+`npm run test:normals` proves it two ways, both exact rather than heuristic.
+**Signed volume** — for a mesh wound consistently outward, ⅙·Σ a·(b×c) is
+positive; inside out, it is negative. That is the definition, not an
+approximation. And **a ray cast in from thirty directions**, where the first
+surface the ray meets must face back at it: the property that actually decides
+how the thing looks.
+
+```
+15 primitives      wound outward, and every normal escapes the solid
+101 kit parts      every visible surface faces the viewer, 30 views each
+62 closed parts    positive volume
+70 span variants   every style and size faces the viewer
+33/33
+```
+
+Found and fixed by that test, none of them by eye:
+
+| | |
+|---|---|
+| `box`, `chamfer` | top and bottom caps inside out |
+| `cylinder`, `cone`, `lathe` | rings turning the wrong way; `sphere` needed the other one, and all four had been given the same |
+| `lathe` | assumed an ascending profile, so the fountain's falling sheets of water came out inverted |
+| `extrude` | assumed a counter-clockwise outline, so the bunting pennants were inside out |
+| `sphere` | both poles wound the same way, so one was always wrong |
+| the roof | flat inside out entirely; gable and hip inside out whenever the building was deeper than wide; the shed's back wall facing the wrong way |
+| five tree trunks, the golden maple, a café chair seat, a café table top, the wind chime disc | open tubes you could look down inside |
+| the floor plate | expansion joints exactly flush with the deck, so the two surfaces z-fought |
+
+### 3d. Weather reaches the world
+
+Rain and snow used to be particles and nothing else — the sun stayed out, the
+fog stayed put, and the road stayed dry under a downpour.
+
+```
+Weather: rain dims the sun              1.30 -> 0.49
+Weather: rain lifts the ambient         0.78 -> 1.01
+Weather: rain closes the fog in         1500 m -> 810 m
+Weather: rain greys the horizon         #c3dcea -> #b3c4d1
+Weather: snow reaches the surfaces      cover 1.00, sun 0.66
+Weather: the real driver runs and the toggle silences it
+```
+
+Wet ground darkens and cools — asphalt far more than grass — with a broad
+broken sheen. Snow lies on upward-facing surfaces and is ploughed off the
+roads. Both reach the player's own build: rain darkens the whole piece, snow
+settles only where a face points up, so a roof whitens and the walls beneath it
+do not. Surfaces hold their state after the shower passes, so weather has a
+before and after rather than a switch.
+
+### 3e. Neighbour towns grow
+
+```
+Neighbours: towns are further along after time passes    281 parts day 0 -> 533 day 40
+Neighbours: growth only ever adds                        24 step comparisons, nothing lost
+Neighbours: the same moment gives the same neighbourhood
+Neighbours: a step up is noticed and has something to say
+Neighbours: day one is a mixed street                    stages 0,1,2,3,4 present
+Neighbours: every finished house has exactly one roof     26/26, 0 double-roofed
+```
+
+Six stages — footprint, roof, fence, garden, second storey, flourishes — driven
+purely by elapsed time and the seed, so nothing is stored and nothing can
+drift. The second check is the one that matters: a visitor who saw a fence last
+week must not find it gone. Two defects it caught are described under *What is
+weak* below.
 
 Placing a roof sizes it to the building underneath automatically. After that,
 four handles appear — one per side — and dragging one grows or shrinks the roof
@@ -87,7 +172,7 @@ Persistence: lot still held after reload
 Persistence: demolition survived reload
 Persistence: the build is still there   3 parts
 Persistence: per-part colours survived
-Persistence: balance survived           904291 -> 904291
+Persistence: balance survived           904336 -> 904336
 ```
 
 ### 5. Economy round trip
@@ -98,7 +183,7 @@ ledger moves on place                   net -3 cr (cost + build reward)
 credits up on erase                     +18 cr refunded
 level up fires                          1 -> 2
 balance is derived from the ledger, not stored
-unaffordable transactions are refused   366 ledger entries
+unaffordable transactions are refused   375 ledger entries
 ```
 
 The balance test writes `state.s.credits = 99999999` directly and confirms the
@@ -108,7 +193,7 @@ rather than stored.
 ### 6. A save is written, exported, reimported and matches
 
 ```
-Save: export, reimport and match        42.0 KB
+Save: export, reimport and match        42.9 KB
 Save: v1 save migrates forward          v1 -> v3, 1234 cr carried over
 ```
 
@@ -134,9 +219,9 @@ is what determines phone performance:
 
 | View | Draw calls | Triangles | Chunks loaded |
 |---|---|---|---|
-| Street level | 55 | 361,000 | 80 |
-| Block level | 56 | 412,000 | 80 |
-| Whole city | 166 | 609,000 | 138 |
+| Street level | 54 | 361,000 | 80 |
+| Block level | 55 | 412,000 | 80 |
+| Whole city | 242 | 650,000 | 209 |
 
 Flat-shaded Lambert, one shadow map, no post-processing. **I expect this to
 hold 30fps on a mid-range phone and 60 on a recent one, but I have not
@@ -149,20 +234,20 @@ If it misses, the lever is in `src/render/chunks.js`: the `QUALITY` table's
 
 | | |
 |---|---|
-| Page size | **947,860 bytes** (926 KB); 341 KB gzipped |
-| — of which JavaScript | 903 KB (three.js is most of it) |
+| Page size | **962,013 bytes** (940 KB); 346 KB gzipped |
+| — of which JavaScript | 917 KB (three.js is most of it) |
 | — of which CSS | 22 KB |
-| First load on 4G | Well under 30 s. One request, 341 KB over the wire. |
+| First load on 4G | Well under 30 s. One request, 346 KB over the wire. |
 | Playable area | 14.5 km² |
 | Lots | 22,331 |
 | Named streets | 96 |
 | Named places | 78 |
 | Named landmarks | 65 |
 | Parks and squares | 35 |
-| Kit parts | 98 |
+| Kit parts | 101 |
 | City data | 130 KB gzipped, 196 KB raw, **8.8 bytes per lot** |
-| Save size | 30.5 KB with one built lot |
-| Models shipped as meshes | 0 — all 98 are generated in code |
+| Save size | 31.2 KB with one built lot |
+| Models shipped as meshes | 0 — all 101 are generated in code |
 
 ---
 
@@ -172,11 +257,14 @@ If it misses, the lever is in `src/render/chunks.js`: the `QUALITY` table's
 `world.place()` the player's taps go through — then takes these at 390×844,
 device pixel ratio 2. Unedited. In `dist/shots/`.
 
-**These images predate the roof rework and were not regenerated**, on request.
-The structure in them is roofed with the old tiled pieces. Everything about the
-new roof in this report is verified programmatically instead — the geometry
-tests above prove the mesh is closed at every size and style, which is a
-stronger claim about seams than a photograph would be. Run `npm run shots` to
+**These images predate the roof rework, the winding fix, the weather and the
+growing neighbours, and were not regenerated**, on request. Treat them as a
+record of an earlier build. Everything claimed in this document is verified
+programmatically instead, which for the things that changed is the stronger
+claim anyway: the geometry tests prove the roof mesh is closed at every size
+and style and that every face in the kit points outward, and a photograph could
+not have shown either — the winding bug in particular is invisible in a
+screenshot, which is exactly how it survived this long. Run `npm run shots` to
 refresh them.
 
 | | |
@@ -219,10 +307,17 @@ one-finger runs for place, paint and erase with a live running cost, each slot
 filled once per drag. All twelve tools plus multi-select, saved designs, and
 undo/redo 400 deep that never costs credits.
 
-**The kit is not primitives.** 100 parts, every one generated in code with
+**The kit is not primitives.** 101 parts, every one generated in code with
 chamfered edges, mouldings, sills, slats, finials, turned balusters and real
 recessed openings with glazed panes. The whole kit costs zero bytes of mesh
-data. Windows and doors are real holes in real frames.
+data. Windows and doors are real holes in real frames. And every face on every
+one of them is proven to point outward — see 3c.
+
+**Spans solve the thing that could not be tiled.** A roof, an awning, a deck
+and a floor are all generated whole at whatever size you drag them to, so they
+have no seams to line up and none to leave a gap. Four handles, one per side;
+drag one and the roof grows from that side only, previewed live and committed
+as a single transaction so it costs the right amount and undoes in one step.
 
 **The economy is server-shaped.** The balance is not stored anywhere. It is
 summed from an append-only ledger on every read, and the test proves that
@@ -234,7 +329,15 @@ apply throws.
 uniform every material reads; no object colour anywhere is touched by the
 clock. Lit windows are emissive geometry that appears only after dark, and at
 distance the window grid dissolves into a per-building average glow rather than
-aliasing into static or vanishing.
+aliasing into static or vanishing. Weather works the same way — two more
+uniforms, `uWet` and `uSnowLay`, plus an overcast term applied on top of
+whatever the clock decided, so a shower at dusk is still dusk.
+
+**Every building is present at every zoom.** The low-rise used to be culled
+past about 1.5 km, which bought the triangle budget and cost the city: a
+handful of towers standing in an empty field with a visible edge where the
+fabric stopped. It is now merged into one mass per quarter block instead —
+15% of the triangles, and there instead of absent.
 
 ### What is weak, specifically
 
@@ -252,42 +355,63 @@ there.
 
 The reason is not architectural: `build/fetch-osm.mjs` pulls real OSM
 footprints and `build/bake.mjs` ingests them, replacing derived heights with
-tagged ones. **I could not run it.** This sandbox's network policy blocks every
-Overpass mirror and every municipal open-data host at CONNECT (403). Rather
-than ship a claim I could not stand behind, I covered the ingestion path
-against a fixture (`npm run test:osm`, 12 checks, all passing, including a
+tagged ones. **I could not run it.** I re-checked every source before finishing
+— overpass-api.de, overpass.kumi.systems, overpass.osm.ch, api.openstreetmap.org,
+planet.osm.org, download.geofabrik.de, osmdata.openstreetmap.de, open.toronto.ca
+and the City's CKAN host all fail at CONNECT with 403. Only github.com is
+routable from here, and it carries no licensed Toronto footprint extract I could
+use. Rather than ship a claim I could not stand behind, I covered the ingestion
+path against a fixture (`npm run test:osm`, 12 checks, all passing, including a
 lat/lon round trip accurate to 0.001 m) so that a single
 `npm run fetch-osm && npm run build` on a machine with network access swaps the
 derived half for real data without touching the game.
 
 **2. I have not measured frame rate on a real device.** See section 8. The
 triangle and draw-call budget is measured and reported; the 30 fps floor is an
-expectation, not a measurement.
+expectation, not a measurement. This is the only claim in this document I
+cannot back with a number from a real run, and it is the one I would most like
+to.
 
-**3. The far-distance LOD drops buildings under 14 m.** Beyond about 1.5 km
-(medium quality), low buildings stop being drawn so the whole-city view stays
-affordable. Pull back fast from street level and you can catch the low-rise
-fabric thinning out at the edge of the fog. Nothing pops *in* while panning
-— detail only ever increases and chunks are cached — but the outward
-transition is visible if you look for it.
+**3. The whole kit was lit from behind, and nothing caught it for weeks.** Every
+primitive in the mesh builder emitted its faces wound inward, so flat shading
+took the normal from the wrong side and every surface in the game sat a shade
+flatter than it should. It never threw, never rendered black, never dropped a
+frame — it just quietly looked worse. What worries me is not the bug, which is
+now fixed and covered by an exact test; it is that a screenshot-driven check
+would never have found it, and did not. Two more defects of exactly that
+character turned up in the same pass, and I would not bet there is not a third
+somewhere I have not thought to point a test at.
 
-**4. The roof is the only part that spans.** Everything else in the kit is one
-module; the roof covers a rectangle of them (see below). That asymmetry is
-right for roofs but it means the span machinery — resize handles, area pricing,
-fit-to-building — currently has exactly one customer. Awnings, floor slabs and
-terraces would all be better as spans, and are not.
+**4. Neighbour growth had two bugs that only a test could see.** Branching on
+the growth stage while drawing random numbers meant an early stage skipped a
+block, that block never consumed its draws, and everything after it shifted —
+so a garden a visitor had already seen came back rearranged. And the fence line
+ran straight over the front wall of any house on the street edge, turning the
+front door into a hedge at stage 2. Both are fixed, and growth is now monotone
+by construction rather than by care: the finished town is planned once and then
+filtered down to what has been built. But both shipped in my first version of
+the feature, and both were found by the check I wrote afterwards.
 
-**5. Weather is thin.** Rain and snow are drawn — snow in the winter months,
-rain otherwise, on a stable per-day roll so it is not permanently wet — and the
-settings toggle turns them on and off. But that is all it is: particles. It
-does not wet the roads, dim the sun, or change the fog.
+**5. The far-distance low-rise is one box per quarter block.** It is present
+now rather than culled, which is the important part, and at that distance a
+block of houses reads as one mass anyway. But it is a mass, not buildings: pull
+in and the merged band swaps for real massing at the LOD boundary. Detail only
+ever increases and chunks are cached, so nothing pops while you pan, but the
+swap is visible if you go looking.
 
-**6. Simulated neighbours are static.** Their towns are generated from a seed
-with the same kit and the same parts the player uses, and they are never
-hand-placed — but they never change. Visits, tips and replies are simulated
-against them on a timer; nobody's town grows.
+**6. Weather is one shared roll for the whole city.** It rains everywhere or
+nowhere. Real weather has an edge you can drive through, and this does not.
+The state also lives only in the shader uniforms, so it does not survive a
+reload — come back after a downpour and the ground is dry.
 
-**7. The height field is a 6 m grid, which is coarse for camera collision.**
+**7. Neighbour growth tops out.** Every town reaches its final stage within a
+couple of weeks and then stops for good. It buys the first fortnight and
+nothing after it, and a player who comes back in a month sees the same
+neighbourhood they left. Making it continue would mean letting them extend
+their footprint, which needs a plan for what happens when two towns want the
+same ground.
+
+**8. The height field is a 6 m grid, which is coarse for camera collision.**
 Good enough that the camera knows a street from a building — the whole reason
 it went from 25 m to 6 m — but on a very narrow lot the camera can still lift
 higher than it strictly needs to when you orbit into a neighbour.
