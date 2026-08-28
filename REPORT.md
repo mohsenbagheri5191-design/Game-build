@@ -6,10 +6,11 @@ the interface for emoji and cold greys. `build/acceptance.mjs` drives the
 shipped `dist/index.html` in a real browser. Machine-readable output in
 `dist/acceptance/report.json`.
 
-`npm run shots:ui` renders every screen to `dist/ui/` for looking at, which is
-how the visual defects in this build were actually found — see 3a.
+`npm run shots:ui` renders every screen to `dist/ui/` and `npm run shots:play`
+renders the states you are actually in while playing. That is how the defects in
+sections 3a and 3f were found — none of them by a test.
 
-## Automated — 128 / 128, plus a 33-check geometry audit and a 4-check icon audit
+## Automated — 135 / 135, plus a 33-check geometry audit and a 4-check icon audit
 
 ### 1. Every screen opens and closes without error
 
@@ -213,6 +214,70 @@ so a rect measured the instant one opens is still below the fold. The fix is to
 wait for two identical on-screen measurements before aiming. It also found that
 picking a part already closes the drawer — behaviour I had not noticed in six
 weeks of calling the function directly.
+
+### 3f. What opening the game found that 128 passing checks did not
+
+Every defect in this section was found by taking a screenshot of a state you
+are actually in while playing and looking at it. All 128 checks were green
+throughout. `npm run shots:play` exists so this is repeatable.
+
+**The neighbours' towns were inside buildings. All twenty-four of them.** This
+is the worst thing in the project. Neighbours are generated on real parcels,
+and those parcels still carried their baked city building — so sixty
+hand-placed parts sat inside a twenty-eight metre grey block. Invisible from
+the street, invisible on a visit, invisible from anywhere. Seven checks about
+neighbour growth were passing the whole time, because every one of them counted
+parts in the save rather than asking whether you could see one.
+
+There were three separate causes, which is the part worth recording. Their lots
+were never added to the cleared set — only the player's demolitions were. The
+height field inflated every building by up to a full cell, because
+`stampHeight` rounded outward, so a tower put its height on the street in front
+of it and on both lots beside it. And the baked subdivision is *not a
+partition*: parcels overlap, so four towns sat under a different parcel's
+building, which clearing their own lot could never remove. Each cause hid the
+next; fixing one moved the count from 24 to 12 to 4 to 0.
+
+The same overlap check now runs on the starter-site search, and the lot the
+game hands a new player moved from a blank alley to the corner of a park.
+
+**The first frame was a grey wall.** A new player was framed 46 m from a 17 m
+neighbour, looking at a slab and an empty road, under the words *"this is the
+real downtown — real streets, real names, real block structure"*. A fresh save
+opens on the block now, and walkthrough step two flies down to the lot.
+
+**Build mode never moved the camera.** It changed the tools and nothing else,
+so turning it on from anywhere else on the map armed every tool and left the
+lot four pixels wide on the far side of the screen. That is indistinguishable
+from the tools not working, and it is exactly what "I couldn't place anything"
+means.
+
+**The lot was centred in the window, not in the part of the window you can
+see**, so its bottom third sat behind the build bar. `frameRect` takes a
+`bottomInset` now, measured from the bar rather than guessed.
+
+**With the colour row open the build bar covered the entire screen.** Sixty-four
+swatches, three zone buttons, eight tools and a storey row are taller than a
+phone. You were painting something you could not see.
+
+**Property lines were drawn over open sky.** They use a material that ignores
+depth — correct on the ground, ruinous from the air — so three chunks of parcel
+outlines carried on being drawn past the streaming radius and downtown appeared
+to sit under a floating wireframe grid.
+
+Smaller, same method: `describeTown` ran two sentences together in lower case;
+the Civic board's Contribute button fell off its card when the part name was
+long; the Shop truncated every row it had; "1 lots held".
+
+```
+Build mode: turning it on from across town brings the lot to you
+Build mode: the lot is framed clear of the build bar, not behind it
+Build mode: it does not snap the view back once you are there
+Neighbours: their lots are cleared, so their towns are not inside a tower
+Your own starter site has nothing standing on it either
+Neighbours: visiting one puts the town on screen
+Your lot is outlined in browse mode, and only gridded in build mode
+```
 
 ### 3c. Every face points the right way
 
@@ -553,6 +618,13 @@ The lesson is not "add more tests". It is that a thing with a picture and a
 touch surface has to be opened and looked at and prodded, on the real first-run
 path, before it is called finished. `npm run shots:ui` and the reachability
 check exist now, but they exist because I shipped without them.
+
+And it kept being true after I thought I had learned it. Everything in 3f was
+found in a later pass, by the same method, with 128 checks green — including
+the neighbours' towns being built inside buildings, which is a feature that has
+never once worked in a way anyone could see. Three separate defects stacked on
+top of each other there, and the only reason any of them surfaced is that I
+took a screenshot of a visit and the town was not in it.
 
 There is a sharper version of the same lesson underneath. The 120 checks that
 missed the overlay were not lazy checks — they were thorough ones aimed at the

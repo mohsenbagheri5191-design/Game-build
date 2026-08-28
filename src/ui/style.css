@@ -723,7 +723,7 @@ select.sel {
    — "Avatar hat · An avata…" tells you nothing that "Avatar hat" did not. */
 .list-item .txt .t2 {
   font-size: var(--fs-xs); color: var(--ink-2); line-height: 1.35;
-  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3;
   overflow: hidden;
 }
 
@@ -831,19 +831,34 @@ select.sel {
   box-shadow: inset 0 3px 10px rgba(120,92,58,0.12);
 }
 .avatar-stage canvas { width: 100%; height: 100%; display: block; }
-.part-pick { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
+/* Fades at the right, like the other scrolling rows — six hair styles do not
+   fit across a phone, and a row that simply stops at the edge reads as broken
+   rather than as scrollable. */
+.part-pick { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; padding: 2px 0;
+  -webkit-mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 26px), transparent 100%);
+  mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 26px), transparent 100%); }
 .part-pick::-webkit-scrollbar { display: none; }
 .part-pick .p {
-  flex: 0 0 auto; min-width: 46px; min-height: 40px; border-radius: var(--r-sm);
-  background: var(--panel-2); border: 1px solid var(--line);
+  flex: 0 0 auto; min-width: 46px; min-height: 42px; padding: 0 13px;
+  border-radius: var(--r-sm);
+  background: linear-gradient(180deg, #fffaf1 0%, var(--paper-2) 100%);
+  border: 1.5px solid var(--edge); border-bottom: 2.5px solid var(--edge-2);
+  box-shadow: var(--lift-1); color: var(--ink);
   display: flex; align-items: center; justify-content: center; font-size: var(--fs-sm); font-weight: 800;
+  white-space: nowrap;
 }
-.part-pick .p.on { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+.part-pick .p:active { transform: translateY(2px); border-bottom-width: 1.5px; box-shadow: var(--press); }
+.part-pick .p.on {
+  background: linear-gradient(180deg, #f4bb60 0%, var(--accent) 100%);
+  border-color: var(--accent-deep); border-bottom-color: #a96b1c; color: var(--accent-ink);
+}
 
 /* -------------------------------------------------------------------- misc */
 .empty { text-align: center; padding: 28px 16px; color: var(--ink-3); font-size: var(--fs-sm); }
 .empty .ico { font-size: 34px; display: block; margin-bottom: 8px; opacity: 0.6; }
-.scroll-x { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; }
+.scroll-x { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 26px), transparent 100%);
+  mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 26px), transparent 100%); }
 .scroll-x::-webkit-scrollbar { display: none; }
 
 #perf {

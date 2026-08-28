@@ -44,8 +44,9 @@ terraces and floor plates work the same way.
 the roads and beads on what you built. Snow lies on whatever points up and gets
 ploughed off the streets.
 
-**The neighbours are building too.** Their towns start at different stages and
-grow — roof, fence, garden, a second storey, an awning over the door — so the
+**The neighbours are building too.** Twenty-four of them, on real cleared lots
+you can walk up to and visit. Their towns start at different stages and grow
+— roof, fence, garden, a second storey, an awning over the door — so the
 street is different when you come back. Once a place is finished its owner
 starts repainting instead.
 
@@ -69,6 +70,7 @@ build/
   test-normals.mjs     proves every face points outward, offline and exactly
   test-icons.mjs       no emoji, no cold greys, every icon accounted for
   shots-ui.mjs         renders every screen to dist/ui/ for looking at
+  shots-play.mjs       renders the states you play in, to dist/play/
   test-osm-ingest.mjs  covers the OSM path against a fixture
   shot.mjs / probe.mjs small harnesses for looking at the thing
 
@@ -89,10 +91,11 @@ src/
 | `npm run bake` | Rebuild the city binary from `build/toronto-source.mjs` |
 | `npm run build` | Bake, then bundle to `dist/index.html` (minified) |
 | `npm run dev` | Same, unminified |
-| `npm run test` | All three suites: geometry (33), icons (4), checklist (128) |
+| `npm run test` | All three suites: geometry (33), icons (4), checklist (135) |
 | `npm run test:normals` | Face winding across every primitive, part and span |
 | `npm run test:icons` | No emoji, no cold greys, every icon exists |
 | `npm run shots:ui` | Render every screen to `dist/ui/` for looking at |
+| `npm run shots:play` | Render the states you play in, to `dist/play/` |
 | `npm run test:osm` | The OpenStreetMap ingestion path, against a fixture |
 | `npm run shots` | Build a structure with the kit and screenshot it |
 | `npm run fetch-osm` | Pull a real OSM extract (needs network) |

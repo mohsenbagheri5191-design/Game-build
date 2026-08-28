@@ -12,7 +12,8 @@
     "fetch-osm": "node build/fetch-osm.mjs",
     "test:normals": "node build/test-normals.mjs",
     "test:icons": "node build/test-icons.mjs",
-    "shots:ui": "node build/shots-ui.mjs"
+    "shots:ui": "node build/shots-ui.mjs",
+    "shots:play": "node build/shots-play.mjs dist/play"
   },
   "repository": {
     "type": "git",

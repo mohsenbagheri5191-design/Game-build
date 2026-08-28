@@ -223,7 +223,10 @@ class App {
       if (!this.state.s.tutorialDone && !this._skipTutorial) this.startTutorial();
       else if (daily.ok) toast(`Daily login · +${daily.amount} cr`, 'good');
       if (upkeep.charged > 0) toast(`Upkeep charged · −${upkeep.charged} cr`);
-      if (upkeep.degraded?.length) toast(`${upkeep.degraded.length} lot(s) fell into disrepair`, 'bad');
+      if (upkeep.degraded?.length) {
+        const n = upkeep.degraded.length;
+        toast(`${n} ${n === 1 ? 'lot' : 'lots'} fell into disrepair`, 'bad');
+      }
     }, 260);
 
     // first gesture unlocks audio

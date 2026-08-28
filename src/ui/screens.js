@@ -20,6 +20,9 @@ import {
   BODY_NAMES, HEAD_NAMES, HAIR_NAMES, HAT_NAMES, FACE_NAMES, AVATAR_ZONES,
 } from '../kit/avatar.js';
 
+/** "1 lot", "2 lots". Small, but "1 lots held" is the kind of thing you notice. */
+const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
 const CATS = [
   ['walls', 'Walls'], ['openings', 'Openings'], ['floors', 'Floors & roof'],
   ['stairs', 'Stairs'], ['posts', 'Posts & rails'], ['bits', 'Structural'],
@@ -202,7 +205,7 @@ export function openWallet(app) {
         el('div.tiny.dim', { text: 'BALANCE' }),
         el('div', { style: { fontSize: '34px', fontWeight: '900', color: 'var(--coin)' }, text: `${fmtCredits(st.credits)} cr` }),
         el('div.row', { style: { marginTop: '10px', gap: '6px' } },
-          el('span.chip', {}, `${st.s.lots.length} lots held`),
+          el('span.chip', {}, `${plural(st.s.lots.length, 'lot')} held`),
           el('span.chip', {}, `${fmtCredits(app.world.totalUpkeep())} cr/day upkeep`))));
 
       // upkeep
@@ -277,7 +280,7 @@ export function openMyLots(app) {
             el('span.spacer'),
             el(`span.chip.${chipKind}`, { text: stage })),
           el('div.row.wrap', { style: { marginTop: '8px', gap: '6px' } },
-            el('span.chip', { text: `${partCount} parts` }),
+            el('span.chip', { text: plural(partCount, 'part') }),
             el('span.chip', { text: `${lotUpkeep(i)} cr/day` }),
             el('span.chip', { text: fmtArea((lot.parcel.u1 - lot.parcel.u0) * (lot.parcel.v1 - lot.parcel.v0), app.state.settings.units === 'imperial') })),
           el('div.row', { style: { marginTop: '10px', gap: '6px' } },
@@ -317,13 +320,13 @@ export function openMyLots(app) {
           body.append(el('div.list-item', {},
             el('div.txt', {},
               el('div.t1', { text: d.name }),
-              el('div.t2', { text: `${d.count} parts · saved ${fmtRelative(d.savedAt)}` })),
+              el('div.t2', { text: `${plural(d.count, 'part')} · saved ${fmtRelative(d.savedAt)}` })),
             tap(el('button.btn.sm', { text: 'Stamp' }), () => {
               if (!app.activeLot) { toast('Open a lot first.', 'bad'); return; }
               const r = app.world.stampDesign(app.activeLot, d.id);
               if (!r.ok) toast(r.reason, 'bad');
               else {
-                toast(`Stamped ${r.placed} parts${r.skipped ? `, ${r.skipped} did not fit` : ''}`, 'good');
+                toast(`Stamped ${plural(r.placed, 'part')}${r.skipped ? `, ${r.skipped} did not fit` : ''}`, 'good');
                 app.audio.place(); app.refreshLots(); app.sheets.close('lots');
               }
             })));
@@ -543,7 +546,7 @@ export function openDiscover(app) {
         const item = el('div.list-item', {}, av,
           el('div.txt', {},
             el('div.t1', { text: nb.town }),
-            el('div.t2', { text: `${nb.name} · Level ${nb.level} · ${nb.partCount} parts` }),
+            el('div.t2', { text: `${nb.name} · Level ${nb.level} · ${plural(nb.partCount, 'part')}` }),
             el('div.t2.dim', { text: nb.blurb })),
           tap(el('button.btn.sm.primary', { text: 'Visit' }), () => openVisit(app, nb)));
         body.append(item);
@@ -564,7 +567,7 @@ export function openVisit(app, nb) {
         el('div.small.muted', { text: nb.blurb }),
         el('div.row.wrap', { style: { marginTop: '8px', gap: '6px' } },
           el('span.chip', { text: `Level ${nb.level}` }),
-          el('span.chip', { text: `${nb.partCount} parts` }),
+          el('span.chip', { text: plural(nb.partCount, 'part') }),
           el('span.chip', { text: parcel ? app.city.addressOf(parcel).full : '' }))));
 
       const notes = app.state.s.social.notes[nb.id] || [];
