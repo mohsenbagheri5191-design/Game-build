@@ -214,7 +214,7 @@ export class BuildBar {
     }
 
     // --- colour picker ---------------------------------------------------
-    this.colourPanel = el('div', { style: { display: app.ui.showColours ? 'block' : 'none' } });
+    this.colourPanel = el('div.colour-panel', { style: { display: app.ui.showColours ? 'block' : 'none' } });
     this.renderColours();
     this.node.append(this.colourPanel);
   }

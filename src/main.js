@@ -190,8 +190,13 @@ class App {
     if (first) {
       this.activeLot = this.state.lot(first.parcelId);
       this.ui.storey = 0;
+      // A returning player wants to see what they built, so land on the lot.
+      // A new one has nothing there yet and needs to see where they are: open
+      // on the city and let the walkthrough bring them down to the ground.
+      const fresh = !this.state.s.tutorialDone && !this._skipTutorial;
       this.cam.frameRect(first.parcel, {
-        minDist: CONFIG.camera.homeDist, pitch: CONFIG.camera.homePitch,
+        minDist: fresh ? CONFIG.camera.introDist : CONFIG.camera.homeDist,
+        pitch: fresh ? CONFIG.camera.introPitch : CONFIG.camera.homePitch,
         autoHeading: true, instant: true,
       });
     } else {
@@ -653,6 +658,43 @@ class App {
     this.bar.show(true);
     this.refreshOverlay();
     this.hud.setHint('Drag to lay a run');
+    this.frameActiveLotIfAway();
+  }
+
+  /**
+   * Bring the lot on screen if the camera is off somewhere else.
+   *
+   * You cannot build on something you cannot see. Build mode used to change
+   * the tools and nothing else, so turning it on while looking at the rest of
+   * downtown left the lot a few pixels wide on the far side of the screen —
+   * every tool armed, every drag landing on someone else's block, and no way
+   * to tell that from the tools simply not working. Only re-frame when the
+   * camera is genuinely elsewhere, so that nudging the view while building
+   * does not snap it back.
+   */
+  frameActiveLotIfAway() {
+    const parcel = this.activeLot ? this.city.parcelById(this.activeLot.parcelId) : null;
+    if (!parcel) return;
+    const cu = (parcel.u0 + parcel.u1) / 2, cv = (parcel.v0 + parcel.v1) / 2;
+    const reach = Math.max(parcel.u1 - parcel.u0, parcel.v1 - parcel.v0);
+    const off = Math.hypot(this.cam.tFocus.x - cu, -this.cam.tFocus.z - cv);
+    if (off <= reach && this.cam.tDist <= CONFIG.camera.homeDist * 2.4) return;
+    this.cam.frameRect(parcel, {
+      minDist: CONFIG.camera.homeDist, pitch: CONFIG.camera.homePitch,
+      autoHeading: true, bottomInset: this.barInset(),
+    });
+  }
+
+  /**
+   * How much of the screen the build bar is covering, right now, measured
+   * rather than assumed — it grows with the safe area and with the colour row
+   * being open, and a hard-coded guess would be wrong on half of them.
+   */
+  barInset() {
+    if (this.mode !== 'build') return 0;
+    const bar = this.hudRoot.querySelector('#buildbar');
+    if (!bar || !window.innerHeight) return 0;
+    return Math.min(0.45, bar.getBoundingClientRect().height / window.innerHeight);
   }
 
   exitBuild() {
@@ -674,6 +716,7 @@ class App {
     this.ui.storey = 0;
     this.cam.frameRect(parcel, {
       minDist: CONFIG.camera.homeDist, pitch: CONFIG.camera.homePitch, autoHeading: true,
+      bottomInset: this.barInset(),
     });
     this.refreshOverlay();
   }
@@ -686,6 +729,7 @@ class App {
     // frame it from an angle that shows the build, not the roof
     this.cam.frameRect(lot.parcel, {
       minDist: CONFIG.camera.homeDist, pitch: CONFIG.camera.homePitch, autoHeading: true,
+      bottomInset: this.barInset(),
     });
     this.refreshOverlay();
     haptic('medium');
@@ -984,9 +1028,23 @@ class App {
     const steps = [
       { t: 'Welcome to Toronto',
         b: 'This is the real downtown — real streets, real names, real block structure. Drag with one finger to look around, pinch to zoom.' },
+      // Step one shows the city; this step is the descent into it. Flying the
+      // camera down here rather than starting there is the difference between
+      // being told where your lot is and being taken to it.
       { t: 'This is your site',
         b: 'You have been given an open lot to start on. This button always brings you back to it.',
-        at: '[aria-label="Go to my site"]' },
+        at: '[aria-label="Go to my site"]',
+        before: () => {
+          if (this.activeLot) {
+            const parcel = this.city.parcelById(this.activeLot.parcelId);
+            if (parcel) {
+              this.cam.frameRect(parcel, {
+                minDist: CONFIG.camera.homeDist, pitch: CONFIG.camera.homePitch,
+                autoHeading: true,
+              });
+            }
+          }
+        } },
       { t: 'Turn on build mode',
         b: 'This is the switch between looking around and building. The build bar appears along the bottom.',
         at: '[aria-label="Build mode"]',

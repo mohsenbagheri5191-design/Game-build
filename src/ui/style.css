@@ -505,8 +505,32 @@ body.left-handed .hud-bottom-left { left: auto; right: calc(var(--safe-r) + 8px)
   color: var(--ink);
   box-shadow: 0 -8px 20px rgba(50,34,22,0.16), 0 -30px 66px rgba(50,34,22,0.22);
   z-index: 5;
+  /*
+   * Sixty-four swatches, three zone buttons, eight tools and a storey row add
+   * up to more than a phone is tall: with the colour row open the bar covered
+   * the entire screen, so you were painting something you could not see. The
+   * cap is on the bar rather than on the swatches because it is the total that
+   * matters, and what does not fit scrolls inside the colour panel below.
+   */
+  max-height: 62vh;
+  max-height: 62dvh;
+  overflow: hidden;
 }
 #buildbar.open { transform: translateY(0); }
+
+/*
+ * Everything in the bar keeps its natural height; only the colour panel gives.
+ * Written with :where() so it carries no specificity — an `#buildbar > *` rule
+ * would beat the class below it and squeeze the labels off the tool buttons,
+ * which is the same trap that once let the scrim override `pointer-events`.
+ */
+:where(#buildbar) > * { flex: 0 0 auto; }
+.colour-panel {
+  flex: 1 1 auto; min-height: 84px; overflow-y: auto; scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(180deg, #000 0, #000 calc(100% - 18px), transparent 100%);
+  mask-image: linear-gradient(180deg, #000 0, #000 calc(100% - 18px), transparent 100%);
+}
+.colour-panel::-webkit-scrollbar { width: 0; }
 
 /* --- the three primary tools ------------------------------------------- */
 .tool-primary { display: flex; gap: 9px; }

@@ -82,7 +82,10 @@ export function openBuildDrawer(app) {
   app.sheets.open('drawer', {
     title: 'Catalogue',
     sub: 'Tap an item to hold it, then place it on your lot',
-    full: true,
+    // Deliberately not `full`. No category has more than fourteen parts, so a
+    // full-height sheet left more than half of itself as blank cream below the
+    // last row on every single tab. Letting it hug its content means the sheet
+    // is as tall as there is something to look at, and no taller.
     render: (body) => {
       const search = el('input.search', {
         type: 'search', placeholder: 'Search parts…', value: app.ui.drawerSearch,

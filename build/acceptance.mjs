@@ -1262,6 +1262,76 @@ rec('Touch: a finger lost mid-gesture does not wedge the camera',
   gestures.recovers.cleared && gestures.recovers.stillWorks && gestures.recovers.finite);
 
 // ---------------------------------------------------------------------------
+// 7b1. build mode puts you where you can build
+// ---------------------------------------------------------------------------
+/*
+ * A new player opens on an establishing shot of downtown. If turning build
+ * mode on from there leaves the camera 600 m up, every tool is armed and the
+ * lot is four pixels wide on the far side of the screen — which is exactly
+ * indistinguishable from the tools not working at all.
+ */
+console.log('--- build mode framing ---');
+const framing = await page.evaluate(async () => {
+  const a = window.__app;
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const lot = a.world.ownedLots()[0];
+  const barTop = () => {
+    const bar = a.hudRoot.querySelector('#buildbar');
+    if (!bar || !bar.classList.contains('open')) return window.innerHeight;
+    return Math.min(window.innerHeight, bar.getBoundingClientRect().top);
+  };
+  const box = () => {
+    const p = lot.parcel;
+    const c = [[p.u0, p.v0], [p.u1, p.v0], [p.u1, p.v1], [p.u0, p.v1]]
+      .map(([u, v]) => a.toScreen(u, v, 0)).filter(Boolean);
+    if (c.length < 4) return null;
+    const xs = c.map((s) => s.x), ys = c.map((s) => s.y);
+    return { x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys) };
+  };
+  // What fraction of the screen's shorter side the lot spans.
+  const share = () => {
+    const b = box();
+    return b ? Math.max(b.x1 - b.x0, b.y1 - b.y0)
+      / Math.min(window.innerWidth, window.innerHeight) : 0;
+  };
+  // And how much of it a finger could actually reach — the part above the bar.
+  const clear = () => {
+    const b = box();
+    if (!b || b.y1 <= b.y0) return 0;
+    return Math.max(0, Math.min(b.y1, barTop()) - b.y0) / (b.y1 - b.y0);
+  };
+
+  a.exitBuild();
+  // send the camera off across downtown, the way the intro shot does
+  a.cam.frame(lot.parcel.u0 + 900, lot.parcel.v0 + 700, 620, 2.4, 0.8, true);
+  await wait(200);
+  const away = { dist: Math.round(a.cam.tDist), share: share(), clear: clear() };
+
+  a.enterBuild();
+  for (let i = 0; i < 80 && Math.abs(a.cam.dist - a.cam.tDist) > 2; i++) await wait(50);
+  await wait(500);
+  const arrived = { dist: Math.round(a.cam.dist), share: share(), clear: clear() };
+
+  // and once you are there, nudging the view must not snap you back
+  const h0 = a.cam.tHeading;
+  a.cam.tHeading = h0 + 0.25;
+  a.exitBuild(); a.enterBuild();
+  await wait(300);
+  const kept = Math.abs(a.cam.tHeading - (h0 + 0.25)) < 1e-6;
+
+  a.exitBuild();
+  return { away, arrived, kept };
+});
+rec('Build mode: turning it on from across town brings the lot to you',
+  framing.arrived.share > 0.2 && framing.arrived.dist < framing.away.dist,
+  `lot filled ${(framing.away.share * 100).toFixed(1)}% of the screen at ${framing.away.dist} m,`
+  + ` ${(framing.arrived.share * 100).toFixed(0)}% at ${framing.arrived.dist} m`);
+rec('Build mode: the lot is framed clear of the build bar, not behind it',
+  framing.arrived.clear > 0.9,
+  `${(framing.arrived.clear * 100).toFixed(0)}% of the lot sits above the bar`);
+rec('Build mode: it does not snap the view back once you are there', framing.kept);
+
+// ---------------------------------------------------------------------------
 // 7b2. a real playthrough, driven only by taps on the screen
 // ---------------------------------------------------------------------------
 /*

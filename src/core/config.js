@@ -84,6 +84,13 @@ export const CONFIG = {
     maxDist: 3400,
     homeDist: 46,
     homePitch: 0.62,
+    // The establishing shot on a first run. Framing the starter lot at home
+    // distance put a new player 46 m from a 17 m wall, looking at a blank
+    // grey slab and an empty road — "this is the real downtown" over a view
+    // that could be any alley anywhere. Open high and wide enough to read as
+    // a city, and let the walkthrough fly down to the lot.
+    introDist: 620,
+    introPitch: 0.80,
     boundsMargin: 260,
   },
 

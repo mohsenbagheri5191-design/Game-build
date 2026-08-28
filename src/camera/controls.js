@@ -332,6 +332,19 @@ export class TouchCamera {
     return best;
   }
 
+  /**
+   * `opts.bottomInset` is the fraction of the screen the interface covers along
+   * the bottom — the build bar, mostly. Without it a lot is centred in the
+   * *window* and therefore sits half behind the bar, which is the one part of
+   * it you most want to reach. With it the lot is centred in the part you can
+   * actually see.
+   *
+   * Two things follow from an inset: the usable height shrinks, so the camera
+   * has to pull back; and the subject has to ride up the screen. Raising it is
+   * done by sliding the focus point horizontally *toward* the camera by `s`,
+   * which lifts the subject by `s·sin(pitch)/(dist + s·cos(pitch))` in units of
+   * tan(fov/2) — solve that for `s` and the framing is exact rather than tuned.
+   */
   frameRect(rect, opts = {}) {
     const cu = (rect.u0 + rect.u1) / 2, cv = (rect.v0 + rect.v1) / 2;
     const w = rect.u1 - rect.u0, d = rect.v1 - rect.v0;
@@ -339,12 +352,26 @@ export class TouchCamera {
     const aspect = Math.max(0.35, this.camera.aspect);
     const tanV = Math.tan((this.camera.fov * DEG) / 2);
     const tanH = tanV * aspect;
+    // Only ever shift by part of the bar's height. Clearing it completely means
+    // pulling the camera back far enough that on a downtown lot the neighbour's
+    // building ends up between you and your own ground — a lot fully clear of
+    // the bar and fully behind a wall is worse than one whose bottom edge is
+    // tucked under it.
+    const inset = clamp((opts.bottomInset ?? 0) * 0.55, 0, 0.2);
+    const sp = Math.sin(pitch), cp = Math.cos(pitch);
+    const lift = inset * tanV;                // half-heights to raise it by
+    const denom = sp - lift * cp;
+    // Sliding the focus by s adds s·cos(pitch) of depth on its own, so the
+    // distance has to be solved for the total rather than added to afterwards.
+    const slide = denom > 0.05 ? lift / denom : 0;
     const needH = w / 2 / tanH;
-    const needV = (d * Math.sin(pitch)) / 2 / tanV;
-    const need = Math.max(needH, needV) * 1.22 + 8;
+    const needV = (d * sp) / 2 / tanV / (1 - inset);
+    const need = (Math.max(needH, needV) * 1.22 + 8) / (1 + slide * cp);
     const dist = clamp(Math.max(need, opts.minDist ?? 28), this.minDist, this.maxDist);
     const heading = opts.heading ?? (opts.autoHeading ? this.bestHeading(cu, cv, dist, pitch) : this.tHeading);
-    this.frame(cu, cv, dist, heading, pitch, opts.instant);
+    const s = clamp(slide * dist, 0, dist * 0.5);
+    this.frame(cu + Math.sin(heading) * s, cv - Math.cos(heading) * s,
+      dist, heading, pitch, opts.instant);
   }
 
   snapNorth(northInGrid) {
