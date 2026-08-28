@@ -108,15 +108,35 @@ export class TouchCamera {
     return { x: e.clientX - r.left, y: e.clientY - r.top };
   }
 
+  /**
+   * Pointer capture is a nicety, not a requirement.
+   *
+   * setPointerCapture throws NotFoundError whenever the pointer is not active
+   * any more — a touch released between the event firing and the handler
+   * running, an element detached mid-gesture, a replayed or synthesised event.
+   * It used to be called before the pointer was recorded, so when it threw it
+   * took the rest of the handler with it and the touch was never registered at
+   * all: no orbit, no pinch, no tap. The gesture system simply stopped, with
+   * nothing on screen to say why. Capture is now attempted after the pointer
+   * is safely on the books, and its failure costs nothing.
+   */
+  _capture(id) {
+    try { this.canvas.setPointerCapture?.(id); } catch { /* not fatal */ }
+  }
+
+  _release(id) {
+    try { this.canvas.releasePointerCapture?.(id); } catch { /* not fatal */ }
+  }
+
   _down(e) {
     if (!this.enabled) return;
     e.preventDefault();
-    this.canvas.setPointerCapture?.(e.pointerId);
     const p = this._pt(e);
     this.pointers.set(e.pointerId, {
       id: e.pointerId, x: p.x, y: p.y, sx: p.x, sy: p.y,
       t: performance.now(), moved: 0,
     });
+    this._capture(e.pointerId);
 
     if (this.pointers.size === 1) {
       this.vHeading = 0; this.vPitch = 0; this.vDist = 0; this.vFocus.set(0, 0, 0);
@@ -159,6 +179,18 @@ export class TouchCamera {
     if (this.pointers.size === 1) {
       if (this.suppressGesture) { this.onDragMove(p, e); return; }
       if (this.locked) return;
+      /*
+       * Nothing moves until the finger has travelled far enough to mean it.
+       *
+       * No tap is perfectly still — a few pixels of wobble is normal — and the
+       * orbit used to apply from the very first pixel, before anyone could
+       * know whether this was a tap or a drag. So every tap turned the view a
+       * degree or two, and the fling velocity carried it on turning after the
+       * finger left. Tapping a building nudged the whole city. Waiting for the
+       * same threshold that decides tap-versus-drag costs eleven pixels at the
+       * start of a real drag, which nobody can feel, and makes a tap a tap.
+       */
+      if (ptr.moved <= TAP_MOVE) return;
       const s = this.sensitivity;
       const dh = (this.invertX ? dx : -dx) * 0.0052 * s;
       const dp = (this.invertY ? -dy : dy) * 0.0042 * s;
@@ -198,7 +230,7 @@ export class TouchCamera {
   _up(e) {
     const ptr = this.pointers.get(e.pointerId);
     if (!ptr) return;
-    this.canvas.releasePointerCapture?.(e.pointerId);
+    this._release(e.pointerId);
     this.pointers.delete(e.pointerId);
     clearTimeout(this._holdTimer);
 

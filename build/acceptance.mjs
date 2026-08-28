@@ -808,6 +808,344 @@ rec('Distance: merging is cheaper than drawing each one',
   `${farLod.far} tris vs ${farLod.near} at full massing (${Math.round(farLod.ratio * 100)}%)`);
 
 // ---------------------------------------------------------------------------
+// 7b. the touch camera: every gesture, driven by real pointer events
+// ---------------------------------------------------------------------------
+console.log('--- finger navigation ---');
+const gestures = await page.evaluate(async () => {
+  const a = window.__app;
+  const cam = a.cam;
+  const c = a.stage.canvas;
+  const out = {};
+
+  // Real PointerEvents on the real canvas, through the real listeners. Calling
+  // the handlers directly would prove only that the maths works; this proves
+  // the wiring does too, which is where gestures actually break.
+  let nextId = 1;
+  const send = (type, id, x, y, extra = {}) => {
+    const r = c.getBoundingClientRect();
+    c.dispatchEvent(new PointerEvent(type, {
+      pointerId: id, pointerType: 'touch', isPrimary: id === 1,
+      clientX: r.left + x, clientY: r.top + y,
+      bubbles: true, cancelable: true, ...extra,
+    }));
+  };
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const settle = (n = 40) => { for (let i = 0; i < n; i++) cam.update(0.016); };
+  const state = () => ({
+    heading: cam.heading, pitch: cam.pitch, dist: cam.dist,
+    fx: cam.focus.x, fz: cam.focus.z,
+    tHeading: cam.tHeading, tPitch: cam.tPitch, tDist: cam.tDist,
+    tfx: cam.tFocus.x, tfz: cam.tFocus.z,
+  });
+  const finite = (s) => Object.values(s).every(Number.isFinite);
+
+  // put the camera somewhere well inside the city, pointing at nothing special
+  a.mode = 'browse';
+  cam.locked = false;
+  cam.frame(0, 900, 400, 1.2, 0.7, true);
+  settle(80);
+
+  // --- 1. one finger drags the view round ---------------------------------
+  {
+    const before = state();
+    const id = nextId++;
+    send('pointerdown', id, 200, 400);
+    for (let i = 1; i <= 8; i++) send('pointermove', id, 200 + i * 12, 400 + i * 5);
+    send('pointerup', id, 296, 440);
+    settle();
+    const after = state();
+    out.orbit = {
+      headingMoved: Math.abs(after.heading - before.heading) > 0.02,
+      pitchMoved: Math.abs(after.pitch - before.pitch) > 0.01,
+      finite: finite(after),
+      dHeading: +(after.heading - before.heading).toFixed(3),
+      dPitch: +(after.pitch - before.pitch).toFixed(3),
+    };
+  }
+
+  // --- 2. a quick tap is a tap, not a nudge of the camera ------------------
+  {
+    cam.frame(0, 900, 400, 1.2, 0.7, true); settle(80);
+    const before = state();
+    let tapped = false;
+    const prevTap = cam.onTap;
+    cam.onTap = () => { tapped = true; };
+    const id = nextId++;
+    send('pointerdown', id, 190, 420);
+    send('pointermove', id, 193, 422);
+    send('pointerup', id, 193, 422);
+    settle();
+    cam.onTap = prevTap;
+    const after = state();
+    out.tap = {
+      fired: tapped,
+      claimedByBuild: cam.suppressGesture,
+      mode: a.mode,
+      dHeading: +(after.heading - before.heading).toFixed(4),
+      dPitch: +(after.pitch - before.pitch).toFixed(4),
+      cameraStill: Math.abs(after.heading - before.heading) < 0.003
+        && Math.abs(after.pitch - before.pitch) < 0.003,
+    };
+  }
+
+  // --- 3. tap and hold opens the context menu ------------------------------
+  {
+    let held = false;
+    const prevHold = cam.onHold;
+    cam.onHold = () => { held = true; };
+    const id = nextId++;
+    send('pointerdown', id, 180, 430);
+    await wait(560);
+    send('pointerup', id, 181, 431);
+    cam.onHold = prevHold;
+    out.hold = { fired: held };
+  }
+
+  // --- 4. pinch zooms, in both directions ---------------------------------
+  {
+    cam.frame(0, 900, 400, 1.2, 0.7, true); settle(80);
+    const start = cam.tDist;
+    const A = nextId++, B = nextId++;
+    send('pointerdown', A, 150, 400);
+    send('pointerdown', B, 250, 400);
+    for (let i = 1; i <= 6; i++) {
+      send('pointermove', A, 150 - i * 10, 400);
+      send('pointermove', B, 250 + i * 10, 400);
+    }
+    send('pointerup', A, 90, 400);
+    send('pointerup', B, 310, 400);
+    settle();
+    const spreadDist = cam.tDist;
+
+    const A2 = nextId++, B2 = nextId++;
+    send('pointerdown', A2, 90, 400);
+    send('pointerdown', B2, 310, 400);
+    for (let i = 1; i <= 6; i++) {
+      send('pointermove', A2, 90 + i * 10, 400);
+      send('pointermove', B2, 310 - i * 10, 400);
+    }
+    send('pointerup', A2, 150, 400);
+    send('pointerup', B2, 250, 400);
+    settle();
+    out.pinch = {
+      spreadZoomsIn: spreadDist < start * 0.92,
+      squeezeZoomsOut: cam.tDist > spreadDist * 1.08,
+      start: Math.round(start), spread: Math.round(spreadDist), back: Math.round(cam.tDist),
+    };
+  }
+
+  // --- 5. two-finger twist turns the heading ------------------------------
+  {
+    cam.frame(0, 900, 400, 1.2, 0.7, true); settle(80);
+    const before = cam.tHeading;
+    const A = nextId++, B = nextId++;
+    const cx = 200, cy = 400, r = 90;
+    send('pointerdown', A, cx - r, cy);
+    send('pointerdown', B, cx + r, cy);
+    for (let i = 1; i <= 8; i++) {
+      const t = (i / 8) * 0.6;
+      send('pointermove', A, cx - Math.cos(t) * r, cy - Math.sin(t) * r);
+      send('pointermove', B, cx + Math.cos(t) * r, cy + Math.sin(t) * r);
+    }
+    send('pointerup', A, cx - r, cy);
+    send('pointerup', B, cx + r, cy);
+    settle();
+    out.twist = {
+      turned: Math.abs(cam.tHeading - before) > 0.2,
+      amount: +(cam.tHeading - before).toFixed(3),
+    };
+  }
+
+  // --- 6. two fingers together drag the map, and it follows the thumb ------
+  {
+    cam.frame(0, 900, 400, 1.2, 0.7, true); settle(80);
+    const before = state();
+    const A = nextId++, B = nextId++;
+    send('pointerdown', A, 170, 380);
+    send('pointerdown', B, 230, 380);
+    for (let i = 1; i <= 8; i++) {
+      send('pointermove', A, 170, 380 + i * 9);
+      send('pointermove', B, 230, 380 + i * 9);
+    }
+    send('pointerup', A, 170, 452);
+    send('pointerup', B, 230, 452);
+    settle(60);
+    const after = state();
+    const moved = Math.hypot(after.fx - before.fx, after.fz - before.fz);
+    // dragging the fingers down pulls the ground toward the viewer, so the
+    // focus travels backwards along the camera's forward axis
+    const fwd = { x: Math.sin(before.heading), z: Math.cos(before.heading) };
+    const along = (after.fx - before.fx) * fwd.x + (after.fz - before.fz) * fwd.z;
+    out.pan = { moved: moved > 5, followsThumb: along < 0, metres: +moved.toFixed(1) };
+  }
+
+  // --- 7. a flick keeps going, then settles -------------------------------
+  {
+    cam.frame(0, 900, 400, 1.2, 0.7, true); settle(80);
+    const id = nextId++;
+    send('pointerdown', id, 300, 400);
+    for (let i = 1; i <= 6; i++) send('pointermove', id, 300 - i * 26, 400);
+    send('pointerup', id, 144, 400);
+    const atRelease = cam.tHeading;
+    for (let i = 0; i < 6; i++) cam.update(0.016);
+    const justAfter = cam.tHeading;
+    settle(300);
+    const rested = cam.tHeading;
+    for (let i = 0; i < 60; i++) cam.update(0.016);
+    out.momentum = {
+      carriesOn: Math.abs(justAfter - atRelease) > 0.001,
+      settles: Math.abs(cam.tHeading - rested) < 0.0005,
+      finite: Number.isFinite(cam.tHeading) && Number.isFinite(cam.dist),
+    };
+  }
+
+  // --- 8. the limits hold -------------------------------------------------
+  {
+    cam.frame(0, 900, 400, 1.2, 0.7, true); settle(40);
+    // drag far past vertical, both ways
+    const id = nextId++;
+    send('pointerdown', id, 200, 400);
+    for (let i = 1; i <= 60; i++) send('pointermove', id, 200, 400 + i * 20);
+    send('pointerup', id, 200, 1600);
+    settle(120);
+    const highPitch = cam.tPitch;
+    const id2 = nextId++;
+    send('pointerdown', id2, 200, 800);
+    for (let i = 1; i <= 60; i++) send('pointermove', id2, 200, 800 - i * 20);
+    send('pointerup', id2, 200, -400);
+    settle(120);
+    const lowPitch = cam.tPitch;
+
+    // zoom past both stops
+    for (let i = 0; i < 80; i++) c.dispatchEvent(new WheelEvent('wheel', { deltaY: -400, bubbles: true, cancelable: true }));
+    settle(60);
+    const nearDist = cam.tDist;
+    for (let i = 0; i < 160; i++) c.dispatchEvent(new WheelEvent('wheel', { deltaY: 400, bubbles: true, cancelable: true }));
+    settle(60);
+    const farDist = cam.tDist;
+
+    // pan hard for the edge of the world
+    for (let k = 0; k < 12; k++) {
+      const A = nextId++, B = nextId++;
+      send('pointerdown', A, 170, 700);
+      send('pointerdown', B, 230, 700);
+      for (let i = 1; i <= 10; i++) {
+        send('pointermove', A, 170, 700 - i * 60);
+        send('pointermove', B, 230, 700 - i * 60);
+      }
+      send('pointerup', A, 170, 100);
+      send('pointerup', B, 230, 100);
+    }
+    settle(200);
+    const city = a.city;
+    const m = cam.margin;
+    out.limits = {
+      pitchHigh: highPitch <= cam.maxPitch + 1e-6,
+      pitchLow: lowPitch >= cam.minPitch - 1e-6,
+      distNear: nearDist >= cam.minDist - 1e-6,
+      distFar: farDist <= cam.maxDist + 1e-6,
+      inBounds: cam.tFocus.x >= city.uMin - m - 1 && cam.tFocus.x <= city.uMax + m + 1
+        && -cam.tFocus.z >= city.vMin - m - 1 && -cam.tFocus.z <= city.vMax + m + 1,
+      finite: finite(state()),
+      pitchRange: `${(cam.minPitch).toFixed(2)}..${(cam.maxPitch).toFixed(2)}`,
+      reached: `${lowPitch.toFixed(2)}..${highPitch.toFixed(2)}`,
+      distRange: `${Math.round(nearDist)}..${Math.round(farDist)}`,
+    };
+  }
+
+  // --- 9. camera lock stops the camera but not the building ---------------
+  {
+    cam.frame(0, 900, 400, 1.2, 0.7, true); settle(60);
+    cam.locked = true;
+    const before = state();
+    const id = nextId++;
+    send('pointerdown', id, 200, 400);
+    for (let i = 1; i <= 8; i++) send('pointermove', id, 200 + i * 14, 400 + i * 6);
+    send('pointerup', id, 312, 448);
+    settle();
+    const after = state();
+    cam.locked = false;
+    out.lock = {
+      held: Math.abs(after.heading - before.heading) < 0.003
+        && Math.abs(after.pitch - before.pitch) < 0.003,
+    };
+  }
+
+  // --- 10. the build system gets first refusal on a one-finger drag -------
+  {
+    cam.frame(0, 900, 400, 1.2, 0.7, true); settle(60);
+    const prevStart = cam.onDragStart, prevMove = cam.onDragMove, prevEnd = cam.onDragEnd;
+    let moves = 0, ended = false;
+    cam.onDragStart = () => true;         // "this drag is mine"
+    cam.onDragMove = () => { moves++; };
+    cam.onDragEnd = () => { ended = true; };
+    const before = state();
+    const id = nextId++;
+    send('pointerdown', id, 200, 400);
+    for (let i = 1; i <= 6; i++) send('pointermove', id, 200 + i * 15, 400);
+    send('pointerup', id, 290, 400);
+    settle();
+    const after = state();
+    cam.onDragStart = prevStart; cam.onDragMove = prevMove; cam.onDragEnd = prevEnd;
+    out.claimed = {
+      gotMoves: moves >= 5, gotEnd: ended,
+      cameraStayedPut: Math.abs(after.heading - before.heading) < 0.003,
+    };
+  }
+
+  // --- 11. a pointer that vanishes mid-gesture does not wedge it ----------
+  {
+    cam.frame(0, 900, 400, 1.2, 0.7, true); settle(60);
+    const A = nextId++, B = nextId++;
+    send('pointerdown', A, 150, 400);
+    send('pointerdown', B, 250, 400);
+    send('pointermove', A, 140, 400);
+    send('pointercancel', A, 140, 400);      // finger leaves the screen edge
+    send('pointerup', B, 250, 400);
+    settle();
+    // and the very next gesture still works
+    const before = cam.tHeading;
+    const id = nextId++;
+    send('pointerdown', id, 200, 400);
+    for (let i = 1; i <= 6; i++) send('pointermove', id, 200 + i * 15, 400);
+    send('pointerup', id, 290, 400);
+    settle();
+    out.recovers = {
+      cleared: cam.pointers.size === 0 && cam.gesture === null,
+      stillWorks: Math.abs(cam.tHeading - before) > 0.02,
+      finite: finite(state()),
+    };
+  }
+
+  return out;
+});
+rec('Touch: one finger drags the view round', gestures.orbit.headingMoved
+  && gestures.orbit.pitchMoved && gestures.orbit.finite,
+  `heading ${gestures.orbit.dHeading} rad, pitch ${gestures.orbit.dPitch} rad`);
+rec('Touch: a quick tap selects and does not nudge the camera',
+  gestures.tap.fired && gestures.tap.cameraStill,
+  `fired=${gestures.tap.fired} mode=${gestures.tap.mode} `
+  + `dHeading=${gestures.tap.dHeading} dPitch=${gestures.tap.dPitch}`);
+rec('Touch: tap and hold opens the context menu', gestures.hold.fired);
+rec('Touch: pinch zooms both ways', gestures.pinch.spreadZoomsIn && gestures.pinch.squeezeZoomsOut,
+  `${gestures.pinch.start} m -> ${gestures.pinch.spread} m -> ${gestures.pinch.back} m`);
+rec('Touch: two-finger twist turns the heading', gestures.twist.turned,
+  `${gestures.twist.amount} rad`);
+rec('Touch: two fingers pan, and the map follows the thumb',
+  gestures.pan.moved && gestures.pan.followsThumb, `${gestures.pan.metres} m`);
+rec('Touch: a flick carries on, then settles',
+  gestures.momentum.carriesOn && gestures.momentum.settles && gestures.momentum.finite);
+rec('Touch: pitch, zoom and the edge of the world all hold',
+  gestures.limits.pitchHigh && gestures.limits.pitchLow && gestures.limits.distNear
+  && gestures.limits.distFar && gestures.limits.inBounds && gestures.limits.finite,
+  `pitch ${gestures.limits.reached} of ${gestures.limits.pitchRange}, dist ${gestures.limits.distRange}`);
+rec('Touch: camera lock holds the camera still', gestures.lock.held);
+rec('Touch: the build tool can claim a one-finger drag',
+  gestures.claimed.gotMoves && gestures.claimed.gotEnd && gestures.claimed.cameraStayedPut);
+rec('Touch: a finger lost mid-gesture does not wedge the camera',
+  gestures.recovers.cleared && gestures.recovers.stillWorks && gestures.recovers.finite);
+
+// ---------------------------------------------------------------------------
 // 7c. weather reaches the world, not just the particle cloud
 // ---------------------------------------------------------------------------
 console.log('--- weather ---');
