@@ -3,8 +3,20 @@
 A low-poly city builder on the real streets of downtown Toronto. One
 self-contained HTML file, portrait phone first, no network at play time.
 
-Open `dist/index.html`. On iOS, Share → **Add to Home Screen** for the
-standalone app.
+## Playing it on a phone
+
+Turn on GitHub Pages once — repository **Settings → Pages**, set *Source* to
+**Deploy from a branch**, pick branch `claude/toronto-3d-map-rebuild-xp28b0`
+and folder `/ (root)`, **Save**. A minute later the game is live at:
+
+**https://mohsenbagheri5191-design.github.io/Game-build/**
+
+Open that on the phone. On iOS, Share → **Add to Home Screen** and it runs
+full screen with no browser chrome, like an app. It works offline after the
+first load — the whole game is that one file, and it makes no network requests
+once it is open.
+
+Locally: just open `dist/index.html` in a browser. There is nothing to serve.
 
 ```
 node build/bake.mjs                                  # geography -> compressed binary
