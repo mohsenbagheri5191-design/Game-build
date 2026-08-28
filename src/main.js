@@ -117,10 +117,24 @@ class App {
     if (this._forceQuality) this.state.settings.quality = this._forceQuality;
     this.stage.setQuality(this.state.settings.quality);
     this.world = new World(this.city, this.state);
-    // Rebuild the height field now that we know what the player has cleared,
-    // so a reload does not resurrect demolished buildings inside it.
-    if (this.world.demolishedSet.size) this.city.buildHeightField(this.world.demolishedSet);
-    this.chunks = new ChunkManager(this.city, this.stage.scene, this.stage.materials, this.world.demolishedSet);
+
+    /*
+     * Neighbours are generated before the world is built, because their lots
+     * have to be cleared like the player's.
+     *
+     * They were not. Every one of the twenty-four towns was generated on a
+     * parcel that still had its baked city building standing on it, so sixty
+     * hand-placed parts sat *inside* a twenty-eight metre grey block: invisible
+     * from the street, invisible on a visit, and invisible to every test, all
+     * of which counted the parts rather than looking for them. The whole
+     * "your neighbours are building too" feature was unobservable.
+     */
+    this.neighbours = generateNeighbours(
+      this.city, CONFIG.social.neighbourCount, undefined, this.state.s.createdAt);
+    for (const nb of this.neighbours) this.world.cleared.add(nb.parcelId);
+
+    this.city.buildHeightField(this.world.cleared);
+    this.chunks = new ChunkManager(this.city, this.stage.scene, this.stage.materials, this.world.cleared);
     this.chunks.setQuality(this.state.settings.quality);
 
     this.lotView = new LotView(this.stage.scene, this.stage.materials.part, this.city);
@@ -149,10 +163,6 @@ class App {
     // --- audio + ui ---
     setProgress(0.86, 'Waking the neighbours');
     this.audio = new Audio(this.state.settings);
-    // Neighbours build against the clock this save started on, so they are
-    // further along every time the player comes back.
-    this.neighbours = generateNeighbours(
-      this.city, CONFIG.social.neighbourCount, undefined, this.state.s.createdAt);
     this.sheets = new SheetHost(hudRoot);
     this.hud = new Hud(this, hudRoot);
     this.bar = new BuildBar(this, hudRoot);
@@ -681,20 +691,26 @@ class App {
     if (off <= reach && this.cam.tDist <= CONFIG.camera.homeDist * 2.4) return;
     this.cam.frameRect(parcel, {
       minDist: CONFIG.camera.homeDist, pitch: CONFIG.camera.homePitch,
-      autoHeading: true, bottomInset: this.barInset(),
+      autoHeading: true, bottomInset: this.bottomInset(),
     });
   }
 
   /**
-   * How much of the screen the build bar is covering, right now, measured
-   * rather than assumed — it grows with the safe area and with the colour row
-   * being open, and a hard-coded guess would be wrong on half of them.
+   * How much of the screen the furniture along the bottom is covering, right
+   * now, measured rather than assumed — the build bar grows with the safe area
+   * and with the colour row open, and a sheet is as tall as its content, so a
+   * hard-coded guess would be wrong on most of them.
    */
-  barInset() {
-    if (this.mode !== 'build') return 0;
-    const bar = this.hudRoot.querySelector('#buildbar');
-    if (!bar || !window.innerHeight) return 0;
-    return Math.min(0.45, bar.getBoundingClientRect().height / window.innerHeight);
+  bottomInset() {
+    const h = window.innerHeight;
+    if (!h) return 0;
+    let cover = 0;
+    const bar = this.hudRoot.querySelector('#buildbar.open');
+    if (bar) cover = Math.max(cover, bar.getBoundingClientRect().height);
+    for (const sheet of this.hudRoot.querySelectorAll('.sheet.open')) {
+      cover = Math.max(cover, sheet.getBoundingClientRect().height);
+    }
+    return Math.min(0.45, cover / h);
   }
 
   exitBuild() {
@@ -718,7 +734,7 @@ class App {
     this.ui.storey = 0;
     this.cam.frameRect(parcel, {
       minDist: CONFIG.camera.homeDist, pitch: CONFIG.camera.homePitch, autoHeading: true,
-      bottomInset: this.barInset(),
+      bottomInset: this.bottomInset(),
     });
     this.refreshOverlay();
   }
@@ -731,7 +747,7 @@ class App {
     // frame it from an angle that shows the build, not the roof
     this.cam.frameRect(lot.parcel, {
       minDist: CONFIG.camera.homeDist, pitch: CONFIG.camera.homePitch, autoHeading: true,
-      bottomInset: this.barInset(),
+      bottomInset: this.bottomInset(),
     });
     this.refreshOverlay();
     haptic('medium');
@@ -747,7 +763,14 @@ class App {
     const parcel = this.city.parcelById(nb.parcelId);
     if (!parcel) return;
     this.guestView.sync([{ parcelId: nb.parcelId, parts: nb.parts, parcel }]);
-    this.cam.frameRect(parcel, { minDist: 42, pitch: 0.6, autoHeading: true });
+    // Same treatment as your own lot: the visit sheet covers the bottom of the
+    // screen, so frame into what is left of it. Framed flat and centred, the
+    // camera used to settle looking at the side of whichever tower the
+    // neighbour happens to live behind.
+    this.cam.frameRect(parcel, {
+      minDist: CONFIG.camera.homeDist, pitch: CONFIG.camera.homePitch,
+      autoHeading: true, bottomInset: this.bottomInset(),
+    });
   }
 
   endVisit() {
@@ -1252,7 +1275,7 @@ class App {
       this.stage.setTimeOfDay(hour, season);
       this.stage.updateWeather(this.state.settings.weather, season, hour);
       this.audio.setNight(this.stage.materials.scenery.userData.uniforms.uNight.value);
-      this.borders.update(this.cam.focus.x, -this.cam.focus.z);
+      this.borders.update(this.cam.focus.x, -this.cam.focus.z, this.cam.dist);
       this.stage.render(dt);
       this.hud.update();
 

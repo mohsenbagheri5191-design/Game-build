@@ -193,6 +193,9 @@ input, select, textarea { font: inherit; color: inherit; }
   background: var(--paper-2); border: 1.5px solid var(--edge);
   font-size: var(--fs-xs); font-weight: 800; white-space: nowrap;
   color: var(--ink-2);
+  /* A chip never widens its row past the card it sits in. Long part names on
+     the civic board pushed the Contribute button off the side. */
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis;
 }
 .chip.good { background: #e6f0dc; border-color: #a8c491; color: #4a6b34; }
 .chip.warn { background: #fbeed3; border-color: #dcb96f; color: #8a6216; }

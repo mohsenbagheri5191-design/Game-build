@@ -144,6 +144,13 @@ export function generateNeighbours(city, count = CONFIG.social.neighbourCount, s
     if (!p || used.has(p.id)) continue;
     const area = (p.u1 - p.u0) * (p.v1 - p.v0);
     if (area < 260 || area > 1600) continue;
+    /*
+     * Nothing else standing on this ground. Clearing the lot removes its own
+     * building; a landmark or an overlapping parcel sitting on top of it stays,
+     * and the town would be built inside that. This is what made four of the
+     * twenty-four invisible.
+     */
+    if (city.buildingsOver(p, p.id).length) continue;
     used.add(p.id);
 
     const level = 3 + Math.floor(r() * 22);
@@ -383,7 +390,10 @@ function describeTown(nb) {
     'Adding a second storey.',
     'Finished, and fussing over the details.',
   ][nb.stage ?? 5];
-  return `${size} lot, ${flavour} ${progress}`;
+  // Two sentences, punctuated. This used to run them together lowercase —
+  // "a busy lot, full of lanterns Adding a second storey."
+  const lead = `${size} lot, ${flavour}.`;
+  return `${lead[0].toUpperCase()}${lead.slice(1)} ${progress}`;
 }
 
 /** What changed at each step up, for the activity feed. */

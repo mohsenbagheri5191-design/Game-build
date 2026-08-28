@@ -213,6 +213,13 @@ export class World extends EventTarget {
     this.redoStack = [];
     this.maxUndo = 400;
     this.demolishedSet = new Set(state.s.demolished);
+    /*
+     * Ground that has no baked city building on it any more. That is the
+     * player's demolitions plus anything else the world has cleared — the
+     * neighbours' lots, which are registered by the app at boot. Kept separate
+     * from demolishedSet because only the player's half is saved.
+     */
+    this.cleared = new Set(this.demolishedSet);
   }
 
   // --- lot queries -------------------------------------------------------
@@ -310,8 +317,9 @@ export class World extends EventTarget {
     });
     if (res.ok) {
       this.demolishedSet.add(parcel.id);
+      this.cleared.add(parcel.id);
       // Nothing may still believe there is a tower on cleared ground.
-      this.city.refreshHeightField(parcel, this.demolishedSet);
+      this.city.refreshHeightField(parcel, this.cleared);
       this.dispatchEvent(new CustomEvent('lots', { detail: { parcel, action: 'claim' } }));
     }
     return res;
@@ -335,7 +343,8 @@ export class World extends EventTarget {
     });
     if (res.ok) {
       this.demolishedSet.delete(parcelId);
-      if (parcel) this.city.refreshHeightField(parcel, this.demolishedSet);
+      this.cleared.delete(parcelId);
+      if (parcel) this.city.refreshHeightField(parcel, this.cleared);
       this.dispatchEvent(new CustomEvent('lots', { detail: { parcel, action: 'release' } }));
     }
     return res;
@@ -883,6 +892,12 @@ export class World extends EventTarget {
           if (p.interior) continue;                       // must front a street
           const area = (p.u1 - p.u0) * (p.v1 - p.v0);
           if (area < cfg.starterMinArea || area > cfg.starterMaxArea) continue;
+
+          // Nothing else standing on it. Clearing the lot takes away its own
+          // building; an overlapping parcel or a landmark stays, and the player
+          // would be handed a site with a tower already through the middle
+          // of it.
+          if (c.buildingsOver(p, p.id, this.cleared).length) continue;
 
           const cu = (p.u0 + p.u1) / 2, cv = (p.v0 + p.v1) / 2;
           const around = c.maxHeightAround(cu, cv, 44);

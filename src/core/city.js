@@ -276,11 +276,26 @@ export class City {
     }
   }
 
+  /**
+   * Mark the field nodes that actually fall inside a footprint.
+   *
+   * This used to round outward — floor on the near edge, ceil on the far one —
+   * which inflated every building by up to a full cell in each direction. The
+   * cost was not subtle: a tower put its height on the street in front of it
+   * and on both lots beside it, so the camera collided with open ground, and a
+   * lot that had genuinely been cleared still read as thirty metres of
+   * building because its neighbours had spilled onto it.
+   */
   stampHeight(rect, h) {
-    const x0 = Math.max(0, Math.floor((rect.u0 - this.uMin) / this.hfCell));
-    const x1 = Math.min(this.hfW - 1, Math.ceil((rect.u1 - this.uMin) / this.hfCell));
-    const z0 = Math.max(0, Math.floor((rect.v0 - this.vMin) / this.hfCell));
-    const z1 = Math.min(this.hfH - 1, Math.ceil((rect.v1 - this.vMin) / this.hfCell));
+    let x0 = Math.max(0, Math.ceil((rect.u0 - this.uMin) / this.hfCell));
+    let x1 = Math.min(this.hfW - 1, Math.floor((rect.u1 - this.uMin) / this.hfCell));
+    let z0 = Math.max(0, Math.ceil((rect.v0 - this.vMin) / this.hfCell));
+    let z1 = Math.min(this.hfH - 1, Math.floor((rect.v1 - this.vMin) / this.hfCell));
+    // A footprint narrower than one cell still has to exist in the field, so
+    // it keeps the single node nearest its middle.
+    const node = (c, span) => Math.min(span - 1, Math.max(0, Math.round(c)));
+    if (x1 < x0) x0 = x1 = node(((rect.u0 + rect.u1) / 2 - this.uMin) / this.hfCell, this.hfW);
+    if (z1 < z0) z0 = z1 = node(((rect.v0 + rect.v1) / 2 - this.vMin) / this.hfCell, this.hfH);
     for (let z = z0; z <= z1; z++) {
       for (let x = x0; x <= x1; x++) {
         const i = z * this.hfW + x;
@@ -319,6 +334,40 @@ export class City {
       }
     }
     for (const l of this.landmarks) if (hit(l, region)) this.stampHeight(l, l.height);
+  }
+
+  /**
+   * Anything still standing that overlaps this rectangle, other than the
+   * rectangle's own parcel.
+   *
+   * The baked subdivision is not a partition: parcels can and do overlap, so a
+   * lot can have another parcel's building physically on top of it. Clearing
+   * the lot removes its own building and leaves the intruder, which is how
+   * four neighbours ended up inside a thirty-metre block on ground the game
+   * believed was empty. Anything choosing a site has to ask this first.
+   */
+  buildingsOver(rect, exceptId = null, cleared = null) {
+    const hit = (a) => a.u0 < rect.u1 && rect.u0 < a.u1 && a.v0 < rect.v1 && rect.v0 < a.v1;
+    const out = [];
+    const c0 = Math.max(0, Math.floor((rect.u0 - this.uMin) / this.chunkSize) - 1);
+    const c1 = Math.min(this.cu - 1, Math.floor((rect.u1 - this.uMin) / this.chunkSize) + 1);
+    const d0 = Math.max(0, Math.floor((rect.v0 - this.vMin) / this.chunkSize) - 1);
+    const d1 = Math.min(this.cv - 1, Math.floor((rect.v1 - this.vMin) / this.chunkSize) + 1);
+    for (let d = d0; d <= d1; d++) {
+      for (let c = c0; c <= c1; c++) {
+        for (const p of this.chunks[d * this.cu + c] || []) {
+          if (p.id === exceptId || p.height <= 1) continue;
+          if (cleared && cleared.has(p.id)) continue;
+          if (hit(p)) out.push(p);
+        }
+      }
+    }
+    for (const l of this.landmarks) {
+      if (l.id === exceptId || l.height <= 1) continue;
+      if (cleared && cleared.has(l.id)) continue;
+      if (hit(l)) out.push(l);
+    }
+    return out;
   }
 
   heightAt(u, v) {

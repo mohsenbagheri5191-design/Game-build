@@ -380,10 +380,23 @@ export class BorderOverlay {
     this.built = new Map();
   }
 
-  setVisible(v) { this.group.visible = v; }
+  setVisible(v) { this.wanted = v; this.group.visible = v; }
 
-  update(u, v, radius = 220) {
-    if (!this.group.visible) return;
+  /**
+   * Property lines, but only when you are close enough for them to mean
+   * anything.
+   *
+   * They are drawn on an overlay material that ignores depth, so they show
+   * through whatever is in front of them — which is what makes them useful on
+   * the ground and ruinous from the air. Zoomed out past the streaming radius,
+   * the three chunks' worth of outlines around the camera carried on being
+   * drawn over open sky, and downtown Toronto appeared to be sitting under a
+   * floating wireframe grid.
+   */
+  update(u, v, dist = 0, radius = 220) {
+    const show = (this.wanted ?? this.group.visible) && dist < 260;
+    if (this.group.visible !== show) this.group.visible = show;
+    if (!show) return;
     const city = this.city;
     const ci = city.chunkIndexAt(u, v);
     if (ci < 0) return;

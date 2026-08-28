@@ -555,7 +555,6 @@ export function openDiscover(app) {
 export function openVisit(app, nb) {
   const parcel = app.city.parcelById(nb.parcelId);
   app.sheets.closeAll();
-  app.visitNeighbour(nb);
 
   app.sheets.open('visit', {
     title: nb.town,
@@ -608,6 +607,10 @@ export function openVisit(app, nb) {
     },
     onClose: () => app.endVisit(),
   });
+
+  // After the sheet, so the camera can measure how much of the screen it covers
+  // and frame the town into the part you can still see.
+  app.visitNeighbour(nb);
 }
 
 // ===========================================================================
@@ -814,7 +817,10 @@ export function openCivic(app) {
             el('span.spacer'),
             pr.complete ? el('span.chip.good', {}, icon('check', 13), el('span', { text: 'Done' })) : el('span.chip', { text: `${pr.given}/${pr.target}` })),
           el('div.bar', { style: { marginTop: '9px' } }, el('i', { style: { width: `${Math.round(pr.pct * 100)}%` } })),
-          el('div.row', { style: { marginTop: '9px', gap: '6px' } },
+          // Wraps: "Needs Rounded tree" plus a price plus Contribute is wider
+          // than a phone, and on a row that cannot wrap the button went off the
+          // side of the card.
+          el('div.row.wrap', { style: { marginTop: '9px', gap: '6px' } },
             el('span.chip', { text: `Needs ${part?.name || proj.item}` }),
             el('span.chip', { text: `${part?.cost || 0} cr each` }),
             el('span.spacer'),

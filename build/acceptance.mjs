@@ -1797,6 +1797,66 @@ rec('Neighbours: every finished house has exactly one roof',
   + `${numbers.neighboursDoubleRoofed} double-roofed`);
 
 // ---------------------------------------------------------------------------
+// 9b. the neighbours' towns are on cleared ground, and can actually be seen
+// ---------------------------------------------------------------------------
+/*
+ * Every check above counts the neighbours' parts. None of them asked whether
+ * you can see one. They were generated on parcels that still carried their
+ * baked city building, so sixty parts sat inside a twenty-eight metre grey
+ * block: correct in the save, correct in the part count, invisible in the game.
+ * The measure that catches it is the height field — what the world believes is
+ * standing on that ground — plus a ray from the camera on an actual visit.
+ */
+console.log('--- neighbours you can see ---');
+const seen = await page.evaluate(async () => {
+  const a = window.__app;
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  let buried = 0, tallest = 0;
+  for (const nb of a.neighbours) {
+    const p = a.city.parcelById(nb.parcelId);
+    if (!p) continue;
+    const h = a.city.heightAt((p.u0 + p.u1) / 2, (p.v0 + p.v1) / 2);
+    if (h > 1) { buried++; tallest = Math.max(tallest, h); }
+  }
+
+  // and on a real visit, the first thing under the middle of the view should
+  // be the town rather than someone else's tower
+  const nb = a.neighbours.find((n) => n.partCount > 20) || a.neighbours[0];
+  window.__screens.openVisit(a, nb);
+  for (let i = 0; i < 120; i++) {
+    await wait(50);
+    const c = a.cam;
+    const d = Math.abs(Math.atan2(Math.sin(c.tHeading - c.heading), Math.cos(c.tHeading - c.heading)));
+    if (d < 0.01 && Math.abs(c.tDist - c.dist) < 0.5 && c.focus.distanceTo(c.tFocus) < 0.5) break;
+  }
+  const p = a.city.parcelById(nb.parcelId);
+  const cu = (p.u0 + p.u1) / 2, cv = (p.v0 + p.v1) / 2;
+  const s = a.toScreen(cu, cv, 0);
+  const onScreen = !!s && s.x > 0 && s.x < window.innerWidth && s.y > 0 && s.y < window.innerHeight;
+  const parts = a.guestView.group.children.filter((n) => n.isMesh);
+  const instances = parts.reduce((t, m) => t + (m.count || 0), 0);
+  a.endVisit();
+  const mine = a.world.ownedLots()[0];
+  const over = mine ? a.city.buildingsOver(mine.parcel, mine.parcel.id, a.world.cleared) : [];
+  return { starterClear: over.length === 0, starterOver: over.length,
+    buried, tallest: Math.round(tallest), towns: a.neighbours.length,
+    onScreen, where: s ? `${Math.round(s.x)},${Math.round(s.y)}` : 'off camera',
+    meshes: parts.length, instances, partCount: nb.partCount };
+});
+rec('Neighbours: their lots are cleared, so their towns are not inside a tower',
+  seen.buried === 0,
+  seen.buried ? `${seen.buried}/${seen.towns} towns buried, tallest ${seen.tallest} m of building on top`
+    : `all ${seen.towns} towns stand on cleared ground`);
+rec('Your own starter site has nothing standing on it either',
+  seen.starterClear,
+  seen.starterClear ? 'clear ground' : `${seen.starterOver} building(s) over the lot you were given`);
+rec('Neighbours: visiting one puts the town on screen',
+  seen.onScreen && seen.instances === seen.partCount,
+  `${seen.instances} of ${seen.partCount} parts in ${seen.meshes} meshes, lot centre at ${seen.where}`);
+
+await boot();
+
+// ---------------------------------------------------------------------------
 // 10. no network requests at runtime
 // ---------------------------------------------------------------------------
 const requests = [];

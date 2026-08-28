@@ -14,6 +14,24 @@
 import { chromium } from 'playwright';
 import { resolve } from 'node:path';
 import { existsSync, mkdirSync } from 'node:fs';
+
+// The camera chases its target per rendered frame, and this renderer manages
+// well under one frame a second — so a fixed wait catches it mid-flight and the
+// screenshot shows the side of whatever it was passing. Wait for it to arrive.
+async function settleCam(p, ms = 30000) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < ms) {
+    const done = await p.evaluate(() => {
+      const c = window.__app?.cam; if (!c) return true;
+      const da = Math.abs(Math.atan2(Math.sin(c.tHeading - c.heading), Math.cos(c.tHeading - c.heading)));
+      return da < 0.01 && Math.abs(c.tDist - c.dist) < 0.5
+        && c.focus.distanceTo(c.tFocus) < 0.5;
+    });
+    if (done) { await p.waitForTimeout(300); return; }
+    await p.waitForTimeout(200);
+  }
+}
+
 mkdirSync('dist/ui', { recursive: true });
 const exe = ['/opt/pw-browsers/chromium-1194/chrome-linux/chrome','/opt/pw-browsers/chromium/chrome-linux/chrome'].find(existsSync);
 const b = await chromium.launch({ executablePath: exe, args:['--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader','--no-sandbox','--disable-dev-shm-usage'] });
@@ -22,7 +40,7 @@ const p = await ctx.newPage();
 const errs=[]; p.on('pageerror',e=>errs.push(e.message));
 await p.goto('file://'+resolve('dist/index.html')+'?notut=1&t=10&q=medium',{waitUntil:'load',timeout:120000});
 await p.waitForFunction('window.__ready===true',{timeout:240000});
-await p.waitForTimeout(3000);
+await settleCam(p);
 await p.evaluate(()=>{ const a=window.__app; a.state.commit({entries:[{type:'cheat',amount:400000,note:'shots'}],apply:st=>{st.s.profile.xp=200000;}});
   // Real milestone ids, so the unlocked state is what actually renders — the
   // shop's title ids look like milestone ids and are not, which is how this
@@ -43,7 +61,7 @@ for (const [name, fn] of screens) {
 }
 await p.evaluate(()=>{ window.__app.sheets.closeAll(); const a=window.__app;
   window.__screens.openVisit(a, a.neighbours[0]); });
-await p.waitForTimeout(800);
+await settleCam(p);
 await p.screenshot({ path:'dist/ui/s-visit.png' });
 console.log('errors:', errs.length?errs.slice(0,3):'none');
 await b.close();
