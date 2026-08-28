@@ -1,8 +1,8 @@
 {
   "out": "dist/index.html",
-  "bytes": 988425,
-  "kb": 965.3,
-  "gzipKb": 354.1,
+  "bytes": 989484,
+  "kb": 966.3,
+  "gzipKb": 354.3,
   "jsKb": 927.8,
-  "cssKb": 36.2
+  "cssKb": 37.2
 }

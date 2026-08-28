@@ -46,12 +46,12 @@ const html = `<!doctype html>
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="${title}">
-<meta name="theme-color" content="#111820">
+<meta name="theme-color" content="#f6e6cd">
 <meta name="color-scheme" content="dark light">
 <meta name="description" content="A low-poly city builder on the real streets of downtown Toronto.">
 <title>${title}</title>
 <link rel="icon" href="data:image/svg+xml,${encodeURIComponent(
-  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#16202b"/><path d="M20 46V28l7-5 7 5v18z" fill="#e8d9b8"/><path d="M38 46V20l4-3 4 3v26z" fill="#c8b48b"/><rect x="14" y="46" width="38" height="4" rx="2" fill="#6d7f8c"/></svg>')}">
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#f4e3c6"/><path d="M20 46V28l7-5 7 5v18z" fill="#e8a33d"/><path d="M38 46V20l4-3 4 3v26z" fill="#d4694a"/><rect x="12" y="46" width="40" height="5" rx="2.5" fill="#8a6f57"/></svg>')}">
 <style>${css}</style>
 </head>
 <body>

@@ -137,7 +137,7 @@ input, select, textarea { font: inherit; color: inherit; }
   border: 1.5px solid var(--edge);
   border-bottom-color: var(--edge-2); border-bottom-width: 2.5px;
   color: var(--ink); font-size: var(--fs-md); font-weight: 700;
-  letter-spacing: -0.005em;
+  letter-spacing: -0.005em; white-space: nowrap;
   box-shadow: var(--lift-1);
   transition: transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease),
               background var(--dur) var(--ease), filter var(--dur) var(--ease);
@@ -670,12 +670,22 @@ select.sel {
 
 /* --------------------------------------------------------------- list entries */
 .list-item {
-  display: flex; align-items: center; gap: 10px;
-  padding: 10px; min-height: 56px;
-  background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--r-md);
+  display: flex; align-items: center; gap: 11px;
+  padding: 11px 12px; min-height: 60px;
+  background: linear-gradient(180deg, #fffaf1, var(--paper-2));
+  border: 1.5px solid var(--edge); border-bottom: 2.5px solid var(--edge-2);
+  border-radius: var(--r-md); color: var(--ink);
+  box-shadow: var(--lift-1);
 }
-.list-item + .list-item { margin-top: 7px; }
-.list-item .av { width: 40px; height: 40px; border-radius: 50%; flex: 0 0 auto; overflow: hidden; background: #0e151c; }
+.list-item + .list-item { margin-top: 9px; }
+/* A row's buttons and chips keep their own width; only the text gives way.
+   Without this the Shop's "250 cr" wrapped onto two lines inside its button. */
+.list-item > .btn, .list-item > .chip { flex: 0 0 auto; }
+.list-item .av {
+  width: 42px; height: 42px; border-radius: 50%; flex: 0 0 auto; overflow: hidden;
+  background: radial-gradient(circle at 36% 28%, #fffaf1, var(--paper-3));
+  border: 1.5px solid var(--edge);
+}
 .list-item .av canvas { width: 100%; height: 100%; }
 .list-item .txt { flex: 1 1 auto; min-width: 0; }
 .list-item .txt .t1 { font-size: var(--fs-sm); font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -694,29 +704,42 @@ select.sel {
 }
 
 /* -------------------------------------------------------------------- splash */
+/* The first thing anyone sees, so it sets the temperature for everything. */
 #splash {
-  position: absolute; inset: 0; background: var(--bg);
+  position: absolute; inset: 0;
+  background: radial-gradient(120% 85% at 50% 18%, #fff7e9 0%, #f6e6cd 46%, #e9d2ad 100%);
+  color: var(--ink);
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 18px; padding: 32px; text-align: center; z-index: 50;
+  gap: 20px; padding: 32px; text-align: center; z-index: 50;
   transition: opacity 420ms var(--ease);
 }
 #splash.gone { opacity: 0; pointer-events: none; }
-#splash .title { font-size: 30px; font-weight: 900; letter-spacing: -0.02em; }
-#splash .sub { font-size: var(--fs-sm); color: var(--ink-2); max-width: 300px; line-height: 1.45; }
-#splash .track { width: min(280px, 76vw); height: 8px; border-radius: 999px; background: var(--panel-2); overflow: hidden; }
-#splash .track > i { display: block; height: 100%; width: 0%; background: var(--accent); transition: width 200ms linear; }
-#splash .pct { font-size: var(--fs-xs); color: var(--ink-3); font-variant-numeric: tabular-nums; }
-#splash .skyline { width: min(320px, 84vw); height: 74px; opacity: 0.9; }
+#splash .title { font-size: 32px; font-weight: 900; letter-spacing: -0.03em; color: var(--ink); }
+#splash .sub { font-size: var(--fs-sm); color: var(--ink-2); max-width: 300px; line-height: 1.45; font-weight: 700; }
+#splash .track {
+  width: min(280px, 76vw); height: 10px; border-radius: 999px;
+  background: rgba(120, 88, 52, 0.16); overflow: hidden;
+  box-shadow: inset 0 1px 3px rgba(90,62,38,0.2);
+}
+#splash .track > i {
+  display: block; height: 100%; width: 0%; border-radius: 999px;
+  background: linear-gradient(180deg, #f4bb60, var(--accent));
+  transition: width 200ms linear;
+}
+#splash .pct { font-size: var(--fs-xs); color: var(--ink-3); font-variant-numeric: tabular-nums; font-weight: 700; }
+#splash .skyline { width: min(320px, 84vw); height: 74px; }
 
 /* ------------------------------------------------------------------ tutorial */
 .coach {
-  position: absolute; left: 12px; right: 12px; bottom: calc(var(--safe-b) + 150px);
-  background: rgba(16, 22, 29, 0.96); border: 1px solid var(--accent);
-  border-radius: var(--r-md); padding: 13px; z-index: 20;
-  box-shadow: 0 10px 34px rgba(0,0,0,0.5);
+  position: absolute; left: 14px; right: 14px; bottom: calc(var(--safe-b) + 158px);
+  background: linear-gradient(180deg, #fffaf1, var(--paper-2));
+  border: 2px solid var(--accent);
+  border-radius: var(--r-lg); padding: 16px; z-index: 20;
+  color: var(--ink);
+  box-shadow: var(--lift-3);
 }
-.coach h3 { margin: 0 0 5px; font-size: var(--fs-lg); font-weight: 800; }
-.coach p { margin: 0 0 10px; font-size: var(--fs-sm); color: var(--ink-2); line-height: 1.45; }
+.coach h3 { margin: 0 0 6px; font-size: var(--fs-lg); font-weight: 900; letter-spacing: -0.02em; }
+.coach p { margin: 0 0 12px; font-size: var(--fs-sm); color: var(--ink-2); line-height: 1.5; font-weight: 600; }
 .coach.pinned { bottom: auto; }
 
 /*
@@ -730,7 +753,7 @@ select.sel {
   position: absolute; z-index: 19; pointer-events: none;
   border-radius: 14px;
   border: 2px solid var(--accent);
-  box-shadow: 0 0 0 9999px rgba(6, 10, 14, 0.62), 0 0 18px 2px var(--accent);
+  box-shadow: 0 0 0 9999px rgba(44, 30, 20, 0.58), 0 0 20px 3px rgba(232,163,61,0.75);
   transition: top 0.26s cubic-bezier(0.22, 1, 0.36, 1), left 0.26s cubic-bezier(0.22, 1, 0.36, 1),
               width 0.26s cubic-bezier(0.22, 1, 0.36, 1), height 0.26s cubic-bezier(0.22, 1, 0.36, 1);
 }
@@ -765,7 +788,12 @@ select.sel {
 .fact .v { font-size: var(--fs-md); font-weight: 800; margin-top: 2px; }
 
 /* ------------------------------------------------------------------- avatar */
-.avatar-stage { width: 100%; aspect-ratio: 1 / 1; max-height: 34vh; border-radius: var(--r-md); background: #0e151c; overflow: hidden; }
+.avatar-stage {
+  width: 100%; aspect-ratio: 1 / 1; max-height: 34vh; border-radius: var(--r-lg);
+  background: radial-gradient(circle at 42% 24%, #fffdf8 0%, #f3e5cd 58%, #e6d3b4 100%);
+  overflow: hidden; border: 1.5px solid var(--edge);
+  box-shadow: inset 0 3px 10px rgba(120,92,58,0.12);
+}
 .avatar-stage canvas { width: 100%; height: 100%; display: block; }
 .part-pick { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
 .part-pick::-webkit-scrollbar { display: none; }
@@ -785,6 +813,6 @@ select.sel {
 #perf {
   position: absolute; left: 8px; bottom: calc(var(--safe-b) + 8px);
   font: 600 10px/1.35 ui-monospace, monospace; color: var(--ink-2);
-  background: rgba(10,16,22,0.7); padding: 4px 7px; border-radius: 7px;
+  background: rgba(60,42,28,0.72); color: #f7ecdb; padding: 5px 8px; border-radius: 8px;
   pointer-events: none; white-space: pre;
 }

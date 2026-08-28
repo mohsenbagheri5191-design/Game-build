@@ -52,6 +52,10 @@ starts repainting instead.
 **The walkthrough points at things.** Each step lights up the control it is
 talking about rather than describing it and hoping.
 
+**Nothing in the interface is an emoji.** All 79 icons were drawn for this
+game on one grid at one stroke weight, and every one takes the colour of the
+control it sits on.
+
 ## Layout
 
 ```
@@ -63,6 +67,8 @@ build/
   acceptance.mjs       the brief's Definition of Done, run against the build
   showcase.mjs         builds a structure with the kit, then screenshots it
   test-normals.mjs     proves every face points outward, offline and exactly
+  test-icons.mjs       no emoji, no cold greys, every icon accounted for
+  shots-ui.mjs         renders every screen to dist/ui/ for looking at
   test-osm-ingest.mjs  covers the OSM path against a fixture
   shot.mjs / probe.mjs small harnesses for looking at the thing
 
@@ -72,7 +78,7 @@ src/
   camera/  the touch camera
   kit/     mesh builder, the 101 parts, spans (roof/awning/terrace/floor), decor
   game/    save (ledger-derived), world (lots + slots + tools), simulation
-  ui/      sheets, screens, build bar, HUD, thumbnails
+  ui/      sheets, screens, build bar, HUD, thumbnails, the drawn icon set
   audio/   synthesised cues and an ambient bed
 ```
 
@@ -83,8 +89,10 @@ src/
 | `npm run bake` | Rebuild the city binary from `build/toronto-source.mjs` |
 | `npm run build` | Bake, then bundle to `dist/index.html` (minified) |
 | `npm run dev` | Same, unminified |
-| `npm run test` | Both suites: the geometry audit, then the checklist |
+| `npm run test` | All three suites: geometry, icons, then the checklist |
 | `npm run test:normals` | Face winding across every primitive, part and span |
+| `npm run test:icons` | No emoji, no cold greys, every icon exists |
+| `npm run shots:ui` | Render every screen to `dist/ui/` for looking at |
 | `npm run test:osm` | The OpenStreetMap ingestion path, against a fixture |
 | `npm run shots` | Build a structure with the kit and screenshot it |
 | `npm run fetch-osm` | Pull a real OSM extract (needs network) |
@@ -102,7 +110,7 @@ src/
 
 | | |
 |---|---|
-| Page | 943 KB (347 KB gzipped), one file, no external requests |
+| Page | 966 KB (354 KB gzipped), one file, no external requests |
 | Playable area | 14.5 km² of downtown Toronto |
 | Lots | 22,331 |
 | Named streets | 96 |

@@ -5,3 +5,4 @@ dist/dev.html
 dist/parts.html
 dist/acceptance/
 *.log
+dist/ui/

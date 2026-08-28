@@ -46,7 +46,7 @@ const VERSION = '1.0.0';
 function splashMarkup() {
   return el('div#splash', {},
     el('svg.skyline', { viewBox: '0 0 320 74', html: `
-      <g fill="#243140">
+      <g fill="#8a6f57">
         <rect x="4" y="46" width="18" height="28"/><rect x="26" y="38" width="14" height="36"/>
         <rect x="44" y="52" width="20" height="22"/><rect x="68" y="30" width="16" height="44"/>
         <rect x="88" y="44" width="12" height="30"/>
@@ -55,7 +55,7 @@ function splashMarkup() {
         <rect x="236" y="48" width="22" height="26"/><rect x="262" y="36" width="16" height="38"/>
         <rect x="282" y="50" width="18" height="24"/>
       </g>
-      <g fill="#64e6c8">
+      <g fill="#d4694a">
         <rect x="118" y="8" width="4" height="66"/>
         <ellipse cx="120" cy="30" rx="9" ry="5"/>
         <rect x="117" y="0" width="1.6" height="10"/>

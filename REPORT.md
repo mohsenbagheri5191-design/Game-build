@@ -1,11 +1,15 @@
 # Definition of Done — results
 
-`npm test` runs two suites. `build/test-normals.mjs` checks the geometry
-itself, offline and exactly, in a second or two. `build/acceptance.mjs` drives
-the shipped `dist/index.html` in a real browser. Machine-readable output in
+`npm test` runs three suites. `build/test-normals.mjs` checks the geometry
+itself, offline and exactly, in a second or two. `build/test-icons.mjs` checks
+the interface for emoji and cold greys. `build/acceptance.mjs` drives the
+shipped `dist/index.html` in a real browser. Machine-readable output in
 `dist/acceptance/report.json`.
 
-## Automated — 120 / 120, plus a 33-check geometry audit
+`npm run shots:ui` renders every screen to `dist/ui/` for looking at, which is
+how the visual defects in this build were actually found — see 3a.
+
+## Automated — 121 / 121, plus a 33-check geometry audit and a 4-check icon audit
 
 ### 1. Every screen opens and closes without error
 
@@ -77,6 +81,53 @@ Span: awning     builds at every style and size · tracks the size asked for
 Span: terrace    builds at every style and size · tracks the size asked for
 Span: floorPlate builds at every style and size · tracks the size asked for
 ```
+
+### 3a. The interface, and why no test caught it
+
+The game shipped with an interface built out of **96 emoji across 52 distinct
+glyphs**, on a cold slate-and-teal palette with 1px hairlines. That is a
+developer tool's chrome bolted onto a city-building game, and it is what a
+player sees first.
+
+No test caught it, and no test could have: tests check behaviour, and "this
+looks unfinished" is not a behaviour. It was found the only way it can be —
+by opening the thing and looking at it. `npm run shots:ui` now renders every
+screen for exactly that.
+
+Every one of these was obvious in the first screenshot and invisible in the
+code:
+
+| | |
+|---|---|
+| Build, My lots and go-home | three near-identical little houses in the same view |
+| Catalogue and Shop | the same shopping bag |
+| Profile and Avatar | the same bust — the hat was drawn as a 24%-opacity fill and simply is not there at 23px |
+| Catalogue thumbnails | near-black tiles punched into cream paper |
+| Selected catalogue item | grey text on dark green, unreadable |
+| Locked items | desaturated to a smear that reads as a failed load, not as "level 3" |
+| `STOREY` | truncated to `STO…` |
+| The Colours button | wrapped to its own line, then went off-screen once there were enough storeys |
+| The menu | sixteen identical honey discs — sixteen labels to read |
+| The compass | a needle inside a ring inside a round button: three circles, one smudge |
+| The tutorial card | still dark slate — the first thing a new player reads |
+| Shop prices | `250 cr` wrapping onto two lines inside its own button |
+
+What replaced it: 79 icons drawn on one 24px grid at one stroke weight, all in
+`currentColor`; a warm palette where no neutral has more blue in it than red;
+panels with two-tone borders, a lit top edge and a real 2px press; and a build
+bar with a shape — the held part on a card, Place/Paint/Erase large, the rest
+in a quieter row that fades at the edge rather than slicing a control in half.
+
+```
+No emoji anywhere in the interface        34 files clean
+Every icon the interface asks for exists  49 names used, 79 defined
+Every icon actually draws something       79 names
+Every neutral in the palette is warm      9 neutrals, all warm
+```
+
+Accents are exempt from the last one on purpose: `--sky` is meant to be blue,
+and a cozy palette may have a cool accent. It is the neutrals that set the
+temperature of the whole interface.
 
 ### 3b2. The walkthrough points at things
 
@@ -287,10 +338,10 @@ If it misses, the lever is in `src/render/chunks.js`: the `QUALITY` table's
 
 | | |
 |---|---|
-| Page size | **966,040 bytes** (943 KB); 347 KB gzipped |
-| — of which JavaScript | 919 KB (three.js is most of it) |
-| — of which CSS | 23 KB |
-| First load on 4G | Well under 30 s. One request, 347 KB over the wire. |
+| Page size | **989,484 bytes** (966 KB); 354 KB gzipped |
+| — of which JavaScript | 928 KB (three.js is most of it) |
+| — of which CSS | 37 KB |
+| First load on 4G | Well under 30 s. One request, 354 KB over the wire. |
 | Playable area | 14.5 km² |
 | Lots | 22,331 |
 | Named streets | 96 |
@@ -451,7 +502,21 @@ by construction rather than by care: the finished town is planned once and then
 filtered down to what has been built. But both shipped in my first version of
 the feature, and both were found by the check I wrote afterwards.
 
-**5. The touch camera shipped with two bugs that no screenshot could show.**
+**5. I built the whole thing without once looking at it.**
+
+Every subsystem had tests, the tests passed, and the interface was 96 emoji on
+a cold grey palette with an invisible sheet of glass over the world. Both of
+those are obvious in the first five seconds of opening it, and neither is
+detectable by any test I would have thought to write — one is a matter of
+taste, the other lives in a CSS specificity rule that no behavioural test
+touches.
+
+The lesson is not "add more tests". It is that a thing with a picture and a
+touch surface has to be opened and looked at and prodded, on the real first-run
+path, before it is called finished. `npm run shots:ui` and the reachability
+check exist now, but they exist because I shipped without them.
+
+**6. The touch camera shipped with two bugs that no screenshot could show.**
 `setPointerCapture` throws whenever the pointer is no longer active, and it was
 called *before* the pointer was recorded — so when it threw, the rest of the
 handler never ran and the touch was never registered at all. No orbit, no
@@ -464,20 +529,20 @@ whole city. Both are fixed and both are covered now. What is worth recording is
 that this was the one subsystem I had left untested, and it had the highest
 density of real defects of anything in the project.
 
-**6. The far-distance low-rise is one box per quarter block.** It is present
+**7. The far-distance low-rise is one box per quarter block.** It is present
 now rather than culled, which is the important part, and at that distance a
 block of houses reads as one mass anyway. But it is a mass, not buildings: pull
 in and the merged band swaps for real massing at the LOD boundary. Detail only
 ever increases and chunks are cached, so nothing pops while you pan, but the
 swap is visible if you go looking.
 
-**7. Weather is one shared roll for the whole city.** It rains everywhere or
+**8. Weather is one shared roll for the whole city.** It rains everywhere or
 nowhere. Real weather has an edge you can drive through, and this does not. A
 fresh load now lands in the right state rather than ramping up to it, so
 reloading mid-downpour no longer gives you dry roads — but the whole map still
 shares one sky.
 
-**8. Neighbour growth ends, and then they only repaint.** A lot is finite and
+**9. Neighbour growth ends, and then they only repaint.** A lot is finite and
 growth may only ever add, so building genuinely has to stop; it does, after
 about a fortnight, and a finished builder repaints every ten days after that.
 That keeps something changing, but repainting is a much smaller event than a
@@ -485,7 +550,7 @@ second storey going up, and a player a year in is watching colours rotate.
 Letting them keep building would mean letting them extend their footprint,
 which needs a plan for what happens when two towns want the same ground.
 
-**9. The height field is a 6 m grid, which is coarse for camera collision.**
+**10. The height field is a 6 m grid, which is coarse for camera collision.**
 Good enough that the camera knows a street from a building — the whole reason
 it went from 25 m to 6 m — but on a very narrow lot the camera can still lift
 higher than it strictly needs to when you orbit into a neighbour.
