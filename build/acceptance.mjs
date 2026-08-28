@@ -1265,11 +1265,39 @@ const weather = await page.evaluate(async () => {
   realUpdate(true, 0.8, 12);
   const drivenOk = Number.isFinite(sky.uWet.value) && Number.isFinite(sky.uSnowLay.value);
 
+  /*
+   * On a fresh load the surfaces must already be in the right state rather
+   * than ramping up to it. How wet the road is has no business being a
+   * function of how long the page has been open: reloading during a downpour
+   * used to give dry roads that slowly darkened, which reads as a bug even
+   * though every individual frame is correct.
+   */
+  // The roll is per-day, and today may well be dry — which would make this
+  // check pass without testing anything. So find a day it actually rains on
+  // and pretend to load then.
+  const realNow = Date.now;
+  const rollFor = (day) => ((Math.imul(day, 0x9e3779b1) >>> 8) & 1023) / 1023;
+  const today = Math.floor(realNow() / 86400000);
+  let wetDay = -1;
+  for (let d = today; d < today + 400; d++) if (rollFor(d) < 0.28) { wetDay = d; break; }
+  Date.now = () => (wetDay + 0.5) * 86400000;
+
+  st._weatherPrimed = false;
+  sky.uWet.value = 0; sky.uSnowLay.value = 0;
+  realUpdate(true, 0.9, 12);          // one frame, as if just loaded
+  const primedWet = sky.uWet.value;
+  for (let i = 0; i < 400; i++) realUpdate(true, 0.9, 12);
+  const settledWet = sky.uWet.value;
+  Date.now = realNow;
+  st._weatherPrimed = false;
+  const primesOnLoad = settledWet > 0.2 && Math.abs(primedWet - settledWet) < 0.02;
+
   // the settings toggle must still silence it
   realUpdate(false, 0.1, 12);
   const offParticles = !!(st.weather && st.weather.visible);
 
-  return { clear, wet, snowy, drivenOk, offParticles };
+  return { clear, wet, snowy, drivenOk, offParticles, wetDay,
+    primesOnLoad, primedWet: +primedWet.toFixed(3), settledWet: +settledWet.toFixed(3) };
 });
 rec('Weather: rain dims the sun', weather.wet.sun < weather.clear.sun * 0.75,
   `${weather.clear.sun.toFixed(2)} -> ${weather.wet.sun.toFixed(2)}`);
@@ -1283,6 +1311,9 @@ rec('Weather: snow reaches the surfaces', weather.snowy.lay > 0.5 && weather.sno
   `snow cover ${weather.snowy.lay.toFixed(2)}, sun ${weather.snowy.sun.toFixed(2)}`);
 rec('Weather: the real driver runs and the toggle silences it',
   weather.drivenOk && !weather.offParticles);
+rec('Weather: a fresh load lands in the right state, not dry then slowly wet',
+  weather.primesOnLoad,
+  `on a genuinely wet day: first frame ${weather.primedWet}, settled ${weather.settledWet}`);
 
 // ---------------------------------------------------------------------------
 // 7d. neighbour towns grow, and nothing they built ever un-builds
@@ -1343,11 +1374,27 @@ const growth = await page.evaluate(() => {
   const moved = rebuildNeighbours(a.city, live, created, Date.now() + 30 * DAY);
   const newsOk = moved.length > 0 && moved.every((n) => !!GROWTH_NEWS[n.stage]);
 
+  // A finished town keeps repainting, so there is still a reason to look in
+  // after everyone has stopped building. The structure must not move.
+  const far = at(120), farther = at(240);
+  let repainted = 0, structureMoved = 0;
+  for (let i = 0; i < far.length; i++) {
+    const a1 = far[i], b1 = farther[i];
+    if (a1.stage !== 5 || b1.stage !== 5) continue;
+    const keysA = Object.keys(a1.parts).sort().join('|');
+    const keysB = Object.keys(b1.parts).sort().join('|');
+    if (keysA !== keysB) { structureMoved++; continue; }
+    const colA = JSON.stringify(Object.values(a1.parts).map((r) => r.colors));
+    const colB = JSON.stringify(Object.values(b1.parts).map((r) => r.colors));
+    if (b1.coat > a1.coat && colA !== colB) repainted++;
+  }
+
   return {
     stages0: stages(day0), stages40: stages(day40),
     parts0: sum(counts(day0)), parts40: sum(counts(day40)),
     grewOverall, stagesRise, shrank, checked, stable, lost,
     movedCount: moved.length, newsOk,
+    repainted, structureMoved, finished: far.filter((n) => n.stage === 5).length,
   };
 });
 rec('Neighbours: towns are further along after time passes', growth.grewOverall && growth.stagesRise,
@@ -1358,6 +1405,9 @@ rec('Neighbours: growth only ever adds (bar a roof rising a storey)', growth.shr
 rec('Neighbours: the same moment gives the same neighbourhood', growth.stable);
 rec('Neighbours: a step up is noticed and has something to say',
   growth.movedCount > 0 && growth.newsOk, `${growth.movedCount} towns moved on`);
+rec('Neighbours: a finished town keeps repainting, and nothing structural moves',
+  growth.repainted > 0 && growth.structureMoved === 0,
+  `${growth.repainted} of ${growth.finished} finished towns repainted between day 120 and 240`);
 
 // ---------------------------------------------------------------------------
 // 8. frame rate at three zoom levels

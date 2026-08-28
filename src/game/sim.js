@@ -87,6 +87,38 @@ export function stageOf(nb, createdAt, now = Date.now()) {
 }
 
 /**
+ * What a finished builder does next: they redecorate.
+ *
+ * A lot is finite and growth may only ever add — a visitor who saw a fence
+ * last week must not find it gone — so building has to stop somewhere. It
+ * stops after about a fortnight, and then nothing would ever change again,
+ * which is the same dead neighbourhood arriving two weeks later.
+ *
+ * So a finished town starts repainting instead. The structure is untouched;
+ * only the palette moves, every ten days or so, each builder on their own
+ * clock. Nothing is lost, the place you remember is still the place, and there
+ * is a reason to look again.
+ */
+const REPAINT_DAYS = 10;
+export const PALETTES = [
+  ['#e6ddd0', '#8a6f57', '#a9cfe0'],
+  ['#cfd9dd', '#54504a', '#a9cfe0'],
+  ['#e7c9a8', '#7d5734', '#a9cfe0'],
+  ['#c6d4c0', '#4d8636', '#a9cfe0'],
+  ['#dcc9d8', '#6b4a63', '#b8d9e6'],
+  ['#e3d5b8', '#9a6b3f', '#c3dbe3'],
+  ['#c9d6e0', '#3f5f78', '#dfe8ee'],
+  ['#e8cfc2', '#a3543f', '#bcd8dd'],
+];
+
+export function coatOf(nb, createdAt, now = Date.now()) {
+  if (stageOf(nb, createdAt, now) < GROWTH_STAGES - 1) return 0;
+  const days = Math.max(0, (now - (createdAt || now)) / 86400000);
+  const own = ((nb.seed >>> 19) & 255) / 255 * REPAINT_DAYS;   // their own clock
+  return Math.max(0, Math.floor((days + own) / REPAINT_DAYS));
+}
+
+/**
  * Generate the neighbouring builders. Deterministic from the seed, so the
  * same neighbours are in the same places every time you come back.
  *
@@ -141,7 +173,8 @@ export function generateNeighbours(city, count = CONFIG.social.neighbourCount, s
     };
     n.stage = stageOf(n, createdAt);
     n.growth = growthOf(n, createdAt);
-    n.parts = buildNeighbourTown(city, p, n, n.stage);
+    n.coat = coatOf(n, createdAt);
+    n.parts = buildNeighbourTown(city, p, n, n.stage, n.coat);
     n.partCount = Object.keys(n.parts).length;
     n.blurb = describeTown(n);
     out.push(n);
@@ -164,12 +197,16 @@ export function rebuildNeighbours(city, neighbours, createdAt, now = Date.now())
   const grown = [];
   for (const nb of neighbours) {
     const stage = stageOf(nb, createdAt, now);
-    if (stage === nb.stage) continue;
+    const coat = coatOf(nb, createdAt, now);
+    if (stage === nb.stage && coat === nb.coat) continue;
+    const repaintOnly = stage === nb.stage;
     nb.stage = stage;
+    nb.coat = coat;
     nb.growth = growthOf(nb, createdAt, now);
-    nb.parts = buildNeighbourTown(city, city.parcelById(nb.parcelId), nb, stage);
+    nb.parts = buildNeighbourTown(city, city.parcelById(nb.parcelId), nb, stage, coat);
     nb.partCount = Object.keys(nb.parts).length;
     nb.blurb = describeTown(nb);
+    nb.lastChange = repaintOnly ? 'repaint' : 'build';
     grown.push(nb);
   }
   return grown;
@@ -191,7 +228,7 @@ export function rebuildNeighbours(city, neighbours, createdAt, now = Date.now())
  *   4  a second storey if they were ever going to build one
  *   5  the flourishes — awning, terrace, lanterns
  */
-function buildNeighbourTown(city, parcel, nb, stage = GROWTH_STAGES - 1) {
+function buildNeighbourTown(city, parcel, nb, stage = GROWTH_STAGES - 1, coat = 0) {
   const r = rng(nb.seed);
   const g = lotGrid(parcel);
 
@@ -235,12 +272,8 @@ function buildNeighbourTown(city, parcel, nb, stage = GROWTH_STAGES - 1) {
   const fi = Math.floor((g.cols - fw) * (0.2 + r() * 0.6));
   const fj = Math.floor((g.rows - fd) * (0.2 + r() * 0.6));
 
-  const palette = [
-    ['#e6ddd0', '#8a6f57', '#a9cfe0'],
-    ['#cfd9dd', '#54504a', '#a9cfe0'],
-    ['#e7c9a8', '#7d5734', '#a9cfe0'],
-    ['#c6d4c0', '#4d8636', '#a9cfe0'],
-  ][nb.style];
+  // A finished builder repaints every so often; `coat` is how many times.
+  const palette = PALETTES[(nb.style + coat) % PALETTES.length];
 
   // A second storey is decided here but only built at stage 4, so a house that
   // was always going to be two storeys grows into the second one rather than
@@ -361,6 +394,14 @@ export const GROWTH_NEWS = [
   'planted the garden',
   'added a second storey',
   'finished the place off',
+];
+
+/** And what to say when a finished town has simply been repainted. */
+export const REPAINT_NEWS = [
+  'has repainted',
+  'picked a new colour',
+  'gave the place a fresh coat',
+  'has been decorating',
 ];
 
 // ---------------------------------------------------------------------------

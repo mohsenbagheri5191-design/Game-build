@@ -284,6 +284,22 @@ export class Stage {
      */
     const wetTarget = amount * (1 - snow);
     const layTarget = amount * snow;
+
+    /*
+     * The first frame lands on the answer rather than ramping up to it.
+     *
+     * How wet the ground is has no business being a function of how long the
+     * page has been open. Ramping from zero every load meant coming back
+     * during a downpour to dry roads that slowly darkened over the next half
+     * minute, which reads as a bug even though every individual frame is
+     * right. The roll is deterministic, so the correct state on load is simply
+     * the target.
+     */
+    if (!this._weatherPrimed) {
+      this._weatherPrimed = true;
+      SKY_U.uWet.value = wetTarget;
+      SKY_U.uSnowLay.value = layTarget;
+    }
     // wetting is quick, drying is slow; snow settles slowly and melts slower
     const wet = SKY_U.uWet.value;
     SKY_U.uWet.value = wet + (wetTarget - wet) * (wetTarget > wet ? 0.020 : 0.004);

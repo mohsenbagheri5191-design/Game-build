@@ -20,7 +20,7 @@ import { World, lotGrid, nearestSlot, slotKey, slotValid, slotTransform, slotsAl
 import {
   generateNeighbours, processDailyLogin, processUpkeep, checkMilestones,
   receiveVisit, CIVIC_PROJECTS, civicProgress, randomNote,
-  stageOf, GROWTH_NEWS, rebuildNeighbours,
+  stageOf, GROWTH_NEWS, REPAINT_NEWS, rebuildNeighbours,
 } from './game/sim.js';
 import { getPart, partGeometry, allParts } from './kit/parts.js';
 import { spanGeometry, spanStyles, spanStyleNames } from './kit/spans.js';
@@ -241,7 +241,7 @@ class App {
     window.__save = { migrate };
     window.__scenery = { buildChunk };
     window.__sky = SKY_U;
-    window.__sim = { stageOf, rebuildNeighbours, generateNeighbours, GROWTH_NEWS };
+    window.__sim = { stageOf, rebuildNeighbours, generateNeighbours, GROWTH_NEWS, REPAINT_NEWS };
     window.__ready = true;
   }
 
@@ -950,15 +950,17 @@ class App {
   checkNeighbourGrowth() {
     const grown = rebuildNeighbours(this.city, this.neighbours, this.state.s.createdAt);
     if (!grown.length) return;
+    const says = (nb) => (nb.lastChange === 'repaint'
+      ? REPAINT_NEWS[nb.coat % REPAINT_NEWS.length]
+      : GROWTH_NEWS[nb.stage] || 'has been busy');
     for (const nb of grown) {
-      const news = GROWTH_NEWS[nb.stage] || 'has been busy';
       (this.state.s.social.notes[nb.id] ||= []).push({
-        from: nb.name, text: `${nb.name} ${news} at ${nb.town}.`, t: Date.now(), growth: true,
+        from: nb.name, text: `${nb.name} ${says(nb)} at ${nb.town}.`, t: Date.now(), growth: true,
       });
     }
     this.state.touch();
     const first = grown[0];
-    toast(`${first.name} ${GROWTH_NEWS[first.stage] || 'has been busy'}`, 'good');
+    toast(`${first.name} ${says(first)}`, 'good');
     // any of their lots on screen need redrawing
     this.refreshLots();
   }
