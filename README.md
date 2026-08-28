@@ -34,7 +34,11 @@ ploughed off the streets.
 
 **The neighbours are building too.** Their towns start at different stages and
 grow — roof, fence, garden, a second storey, an awning over the door — so the
-street is different when you come back.
+street is different when you come back. Once a place is finished its owner
+starts repainting instead.
+
+**The walkthrough points at things.** Each step lights up the control it is
+talking about rather than describing it and hoping.
 
 ## Layout
 
@@ -86,7 +90,7 @@ src/
 
 | | |
 |---|---|
-| Page | 940 KB (346 KB gzipped), one file, no external requests |
+| Page | 943 KB (347 KB gzipped), one file, no external requests |
 | Playable area | 14.5 km² of downtown Toronto |
 | Lots | 22,331 |
 | Named streets | 96 |

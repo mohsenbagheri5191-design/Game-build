@@ -5,7 +5,7 @@ itself, offline and exactly, in a second or two. `build/acceptance.mjs` drives
 the shipped `dist/index.html` in a real browser. Machine-readable output in
 `dist/acceptance/report.json`.
 
-## Automated — 102 / 102, plus a 33-check geometry audit
+## Automated — 120 / 120, plus a 33-check geometry audit
 
 ### 1. Every screen opens and closes without error
 
@@ -78,6 +78,53 @@ Span: terrace    builds at every style and size · tracks the size asked for
 Span: floorPlate builds at every style and size · tracks the size asked for
 ```
 
+### 3b2. The walkthrough points at things
+
+Six paragraphs describing controls became seven steps that light them up. Five
+of the seven ring a real control — go home, build mode, catalogue, the Place
+tool, colours — with the rest of the screen darkened and a nib on the card
+pointing back at it. The card moves to whichever side of the target has more
+room, so it never covers what it is describing, and the whole overlay is
+`pointer-events: none`, so the control being pointed at is still the control
+you can tap.
+
+```
+Walkthrough: every step has a title and something to say        7 steps
+Walkthrough: the steps that name a control ring it, on screen
+Walkthrough: the card never sits on top of what it points at
+Walkthrough: it finishes, marks itself done and leaves nothing behind
+Walkthrough: it replays from Help and can be dismissed
+```
+
+The third check is not decoration. Writing it caught a design mistake: the
+catalogue step used to open the drawer for the player, which hid the build bar
+and so covered the very button it was pointing at.
+
+### 3b3. Finger navigation, driven by real pointer events
+
+This was the one requirement with no test behind it. Eleven checks now drive
+the camera through `PointerEvent`s dispatched on the real canvas — not by
+calling the handlers, which would prove only that the maths works, but through
+the listeners, which is where gestures actually break.
+
+```
+Touch: one finger drags the view round        heading -0.55 rad, pitch 0.19 rad
+Touch: a quick tap selects and does not nudge the camera
+Touch: tap and hold opens the context menu
+Touch: pinch zooms both ways                  400 m -> 182 m -> 400 m
+Touch: two-finger twist turns the heading     0.6 rad
+Touch: two fingers pan, and the map follows the thumb    54 m
+Touch: a flick carries on, then settles
+Touch: pitch, zoom and the edge of the world all hold
+Touch: camera lock holds the camera still
+Touch: the build tool can claim a one-finger drag
+Touch: a finger lost mid-gesture does not wedge the camera
+```
+
+They failed nine of eleven on the first run, on two real bugs — both described
+under *What is weak* below. Every check also asserts that no value in the
+camera has gone non-finite.
+
 ### 3c. Every face points the right way
 
 Flat shading takes the normal straight from the winding order, so a face wound
@@ -130,7 +177,12 @@ Weather: rain closes the fog in         1500 m -> 810 m
 Weather: rain greys the horizon         #c3dcea -> #b3c4d1
 Weather: snow reaches the surfaces      cover 1.00, sun 0.66
 Weather: the real driver runs and the toggle silences it
+Weather: a fresh load lands in the right state           first frame 0.678, settled 0.678
 ```
+
+That last check searches forward for a day the roll actually wets before
+testing, because it does not happen to be raining today and it would otherwise
+have passed without testing anything.
 
 Wet ground darkens and cools — asphalt far more than grass — with a broad
 broken sheen. Snow lies on upward-facing surfaces and is ploughed off the
@@ -148,6 +200,7 @@ Neighbours: the same moment gives the same neighbourhood
 Neighbours: a step up is noticed and has something to say
 Neighbours: day one is a mixed street                    stages 0,1,2,3,4 present
 Neighbours: every finished house has exactly one roof     26/26, 0 double-roofed
+Neighbours: a finished town keeps repainting              8/8 between day 120 and 240
 ```
 
 Six stages — footprint, roof, fence, garden, second storey, flourishes — driven
@@ -219,9 +272,9 @@ is what determines phone performance:
 
 | View | Draw calls | Triangles | Chunks loaded |
 |---|---|---|---|
-| Street level | 54 | 361,000 | 80 |
-| Block level | 55 | 412,000 | 80 |
-| Whole city | 242 | 650,000 | 209 |
+| Street level | 73 | 441,000 | 83 |
+| Block level | 69 | 455,000 | 82 |
+| Whole city | 282 | 659,000 | 240 |
 
 Flat-shaded Lambert, one shadow map, no post-processing. **I expect this to
 hold 30fps on a mid-range phone and 60 on a recent one, but I have not
@@ -234,10 +287,10 @@ If it misses, the lever is in `src/render/chunks.js`: the `QUALITY` table's
 
 | | |
 |---|---|
-| Page size | **962,013 bytes** (940 KB); 346 KB gzipped |
-| — of which JavaScript | 917 KB (three.js is most of it) |
-| — of which CSS | 22 KB |
-| First load on 4G | Well under 30 s. One request, 346 KB over the wire. |
+| Page size | **966,040 bytes** (943 KB); 347 KB gzipped |
+| — of which JavaScript | 919 KB (three.js is most of it) |
+| — of which CSS | 23 KB |
+| First load on 4G | Well under 30 s. One request, 347 KB over the wire. |
 | Playable area | 14.5 km² |
 | Lots | 22,331 |
 | Named streets | 96 |
@@ -300,6 +353,12 @@ named landmarks placed by the intersection they occupy, at their real heights �
 the CN Tower is 553 m with its SkyPod at 342 m, First Canadian Place is 298 m.
 The Toronto Islands, the harbour, the Don, and the Union Station rail corridor
 are all there. The skyline from the lake is recognisable.
+
+**Finger navigation is proven, not asserted.** Eleven checks drive real
+PointerEvents through the real listeners: orbit, tap, hold, pinch both ways,
+twist, two-finger pan, fling momentum, every limit, camera lock, the build tool
+claiming a drag, and a finger lost mid-gesture. A tap now leaves the camera
+exactly where it was.
 
 **The build system does what the brief asks.** Three slot kinds, magnetism on
 every side, a ghost that reads valid or invalid before you commit, continuous
@@ -392,26 +451,41 @@ by construction rather than by care: the finished town is planned once and then
 filtered down to what has been built. But both shipped in my first version of
 the feature, and both were found by the check I wrote afterwards.
 
-**5. The far-distance low-rise is one box per quarter block.** It is present
+**5. The touch camera shipped with two bugs that no screenshot could show.**
+`setPointerCapture` throws whenever the pointer is no longer active, and it was
+called *before* the pointer was recorded — so when it threw, the rest of the
+handler never ran and the touch was never registered at all. No orbit, no
+pinch, no tap, no hold: the gesture system simply stopped, with nothing on
+screen to say why. And separately, the orbit applied from the first pixel of
+movement, before anything could know whether this was a tap or a drag, so three
+pixels of normal finger wobble turned the view 1.7° and the fling velocity
+carried it on turning after the finger lifted — tapping a building moved the
+whole city. Both are fixed and both are covered now. What is worth recording is
+that this was the one subsystem I had left untested, and it had the highest
+density of real defects of anything in the project.
+
+**6. The far-distance low-rise is one box per quarter block.** It is present
 now rather than culled, which is the important part, and at that distance a
 block of houses reads as one mass anyway. But it is a mass, not buildings: pull
 in and the merged band swaps for real massing at the LOD boundary. Detail only
 ever increases and chunks are cached, so nothing pops while you pan, but the
 swap is visible if you go looking.
 
-**6. Weather is one shared roll for the whole city.** It rains everywhere or
-nowhere. Real weather has an edge you can drive through, and this does not.
-The state also lives only in the shader uniforms, so it does not survive a
-reload — come back after a downpour and the ground is dry.
+**7. Weather is one shared roll for the whole city.** It rains everywhere or
+nowhere. Real weather has an edge you can drive through, and this does not. A
+fresh load now lands in the right state rather than ramping up to it, so
+reloading mid-downpour no longer gives you dry roads — but the whole map still
+shares one sky.
 
-**7. Neighbour growth tops out.** Every town reaches its final stage within a
-couple of weeks and then stops for good. It buys the first fortnight and
-nothing after it, and a player who comes back in a month sees the same
-neighbourhood they left. Making it continue would mean letting them extend
-their footprint, which needs a plan for what happens when two towns want the
-same ground.
+**8. Neighbour growth ends, and then they only repaint.** A lot is finite and
+growth may only ever add, so building genuinely has to stop; it does, after
+about a fortnight, and a finished builder repaints every ten days after that.
+That keeps something changing, but repainting is a much smaller event than a
+second storey going up, and a player a year in is watching colours rotate.
+Letting them keep building would mean letting them extend their footprint,
+which needs a plan for what happens when two towns want the same ground.
 
-**8. The height field is a 6 m grid, which is coarse for camera collision.**
+**9. The height field is a 6 m grid, which is coarse for camera collision.**
 Good enough that the camera knows a street from a building — the whole reason
 it went from 25 m to 6 m — but on a very narrow lot the camera can still lift
 higher than it strictly needs to when you orbit into a neighbour.
@@ -420,10 +494,6 @@ higher than it strictly needs to when you orbit into a neighbour.
 
 **A real OpenStreetMap bake.** Blocked by the sandbox network policy, as above.
 The pipeline and its test are there; the data is not.
-
-**A tutorial that points at things.** The first-run walkthrough is six written
-steps that explain the gestures and open the catalogue at the right moment. It
-does not highlight or arrow at specific controls. It is replayable from Help.
 
 **Server-side anything.** By design — §2.3 and §2.5 require the opposite.
 Nothing leaves the device.
