@@ -315,7 +315,7 @@ class App {
         // spans get their own menu: fit, shape, colour, erase
         const names = spanStyleNames(rec.part);
         const styleActions = spanStyles(rec.part).filter((st) => st !== rec.style).map((st) => ({
-          ico: '⌂', label: `Shape: ${names[st]}`,
+          ico: 'build', label: `Shape: ${names[st]}`,
           run: () => {
             this.world.setSpanStyle(lot, near.key, st);
             this.audio.snap(); this.refreshLots();
@@ -335,7 +335,7 @@ class App {
                 this.audio.place();
                 this.refreshLots(); this.refreshOverlay();
               } },
-            { ico: '↔', label: 'Resize by dragging a side', hint: 'Selects it and shows the handles',
+            { ico: 'resize', label: 'Resize by dragging a side', hint: 'Selects it and shows the handles',
               run: () => {
                 this.activeLot = lot;
                 this.ui.selectedSlot = near.key;
@@ -345,9 +345,9 @@ class App {
                 toast('Drag any of the four handles');
               } },
             ...styleActions,
-            { ico: '🎨', label: `Colour this ${(part?.name || 'part').toLowerCase()}`,
+            { ico: 'paint', label: `Colour this ${(part?.name || 'part').toLowerCase()}`,
               run: () => { this.activeLot = lot; this.ui.selectedSlot = near.key; this.ui.showColours = true; this.enterBuild(); this.bar.render(); } },
-            { ico: '🧽', label: 'Erase',
+            { ico: 'erase', label: 'Erase',
               run: () => { const e = this.world.erase(lot, near.key); if (e.ok) { this.audio.erase(); toast(`Removed · +${e.refund} cr`); this.ui.selectedSlot = null; this.refreshLots(); this.refreshOverlay(); } } },
           ],
         });
@@ -357,13 +357,13 @@ class App {
         title: part?.name || 'Part',
         sub: lot?.name,
         actions: [
-          { ico: '🔄', label: 'Rotate 90°', run: () => { this.world.rotate(lot, near.key, 1); this.audio.snap(); this.refreshLots(); } },
-          { ico: '🎨', label: 'Colour this part', run: () => { this.ui.selectedSlot = near.key; this.ui.showColours = true; this.enterBuild(); this.bar.render(); } },
+          { ico: 'rotate', label: 'Rotate 90°', run: () => { this.world.rotate(lot, near.key, 1); this.audio.snap(); this.refreshLots(); } },
+          { ico: 'paint', label: 'Colour this part', run: () => { this.ui.selectedSlot = near.key; this.ui.showColours = true; this.enterBuild(); this.bar.render(); } },
           { ico: '⧉', label: 'Duplicate', hint: 'Hold a copy, colour and all',
             run: () => { this.holdPart(near.partId, lot.parts[near.key].colors); this.bar.setTool('place'); this.enterBuild(); } },
-          { ico: '💧', label: 'Pick up colour and type', run: () => { this.eyedrop(lot, near.key); this.enterBuild(); } },
-          { ico: '✋', label: 'Move', run: () => { this.ui.moveFrom = near.key; this.bar.setTool('move'); this.enterBuild(); toast('Now tap where it should go'); } },
-          { ico: '🧽', label: 'Erase', run: () => { const r = this.world.erase(lot, near.key); if (r.ok) { this.audio.erase(); toast(`Removed · +${r.refund} cr`); this.refreshLots(); } } },
+          { ico: 'eyedrop', label: 'Pick up colour and type', run: () => { this.eyedrop(lot, near.key); this.enterBuild(); } },
+          { ico: 'move', label: 'Move', run: () => { this.ui.moveFrom = near.key; this.bar.setTool('move'); this.enterBuild(); toast('Now tap where it should go'); } },
+          { ico: 'erase', label: 'Erase', run: () => { const r = this.world.erase(lot, near.key); if (r.ok) { this.audio.erase(); toast(`Removed · +${r.refund} cr`); this.refreshLots(); } } },
         ],
       });
       return;
@@ -373,21 +373,21 @@ class App {
     const actions = [];
     if (info.kind === 'parcel' && info.owned) {
       actions.push(
-        { ico: '🧱', label: 'Build here', run: () => { this.focusLot(info.parcel.id); this.enterBuild(); } },
-        { ico: '💾', label: 'Save this lot as a design', run: async () => {
+        { ico: 'build', label: 'Build here', run: () => { this.focusLot(info.parcel.id); this.enterBuild(); } },
+        { ico: 'save', label: 'Save this lot as a design', run: async () => {
           const { promptDialog } = await import('./ui/dom.js');
           const n = await promptDialog('Name this design', 'e.g. Corner cottage');
           if (n) { const r = this.world.saveDesign(info.owned, n); toast(r.ok ? `Saved "${n}"` : r.reason, r.ok ? 'good' : 'bad'); }
         } },
-        { ico: '🗑', label: 'Clear the lot', run: async () => {
+        { ico: 'trash', label: 'Clear the lot', run: async () => {
           const ok = await confirmDialog('Clear this lot?', 'All parts are removed. You can undo it.', 'Clear it');
           if (ok) { this.world.clearLot(info.owned); this.refreshLots(); }
         } });
     } else if (info.kind === 'parcel') {
-      actions.push({ ico: '📍', label: `Claim for ${info.price} cr`, run: () => openSiteCard(this, info) });
+      actions.push({ ico: 'pin', label: `Claim for ${info.price} cr`, run: () => openSiteCard(this, info) });
     }
-    actions.push({ ico: '🔍', label: 'Look at this', run: () => this.cam.frame(info.u, info.v, 70, this.cam.tHeading, 0.42) });
-    actions.push({ ico: 'ℹ️', label: 'Site details', run: () => openSiteCard(this, info) });
+    actions.push({ ico: 'search', label: 'Look at this', run: () => this.cam.frame(info.u, info.v, 70, this.cam.tHeading, 0.42) });
+    actions.push({ ico: 'about', label: 'Site details', run: () => openSiteCard(this, info) });
     openContextMenu(this, { title: info.address || info.name || 'Here', sub: info.place, actions });
   }
 
@@ -789,7 +789,7 @@ class App {
     const newly = checkMilestones(this.state, this.world);
     for (const m of newly) {
       this.audio.levelUp();
-      toast(`🏅 ${m.name} · +${m.reward} cr`, 'good');
+      toast(`${m.name} · +${m.reward} cr`, 'good');
     }
     this.bar.render();
   }
@@ -1013,7 +1013,7 @@ class App {
       this.endTutorial();
       this.state.s.tutorialDone = true;
       this.state.touch();
-      if (!replay) toast('Have fun. Everything is in the ☰ menu.', 'good');
+      if (!replay) toast('Have fun. Everything is in the menu, top right.', 'good');
     };
 
     const show = () => {

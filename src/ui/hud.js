@@ -7,6 +7,7 @@
  */
 
 import { el, tap, fmtCredits } from './dom.js';
+import { icon } from './icons.js';
 import { headingToBearing, cardinal, NORTH_IN_GRID } from '../core/geo.js';
 
 export class Hud {
@@ -22,29 +23,29 @@ export class Hud {
 
     const top = el('div.hud-top', {},
       tap(el('div.hud-pill', { role: 'button', 'aria-label': 'Wallet' },
-        el('span.coin', { text: '◉' }), this.credits), () => app.openWallet()),
+        el('span.coin', {}, icon('coin', 19)), this.credits), () => app.openWallet()),
       tap(el('div.hud-pill', { role: 'button', 'aria-label': 'Profile' },
         this.level,
         el('span.bar', { style: { width: '38px' } }, this.xpBar)), () => app.openProfile()),
       el('span.spacer'),
-      tap(el('button.icon-btn', { 'aria-label': 'Menu', text: '☰' }), () => app.openMenu()));
+      tap(el('button.icon-btn', { 'aria-label': 'Menu' }, icon('menu', 22)), () => app.openMenu()));
     root.append(top);
 
     // --- right column ---
-    this.needle = el('div.needle', { text: '➤' });
+    this.needle = el('div.needle', {}, icon('compass', 26));
     this.cardinal = el('div.cardinal', { text: 'N' });
     const compass = tap(el('button.icon-btn.compass', { 'aria-label': 'Snap to north' },
       this.needle, this.cardinal), () => app.snapNorth());
 
-    this.buildBtn = tap(el('button.icon-btn', { 'aria-label': 'Build mode', text: '🧱' }), () => app.toggleBuild());
-    this.timeBtn = tap(el('button.icon-btn', { 'aria-label': 'Time of day', text: '☀️' }), () => app.cycleTime());
+    this.buildBtn = tap(el('button.icon-btn', { 'aria-label': 'Build mode' }, icon('build', 23)), () => app.toggleBuild());
+    this.timeBtn = tap(el('button.icon-btn', { 'aria-label': 'Time of day' }, icon('sun', 22)), () => app.cycleTime());
 
     root.append(el('div.hud-right', {},
       compass,
-      tap(el('button.icon-btn', { 'aria-label': 'Go to my site', text: '🏠' }), () => app.goHome()),
+      tap(el('button.icon-btn', { 'aria-label': 'Go to my site' }, icon('home', 22)), () => app.goHome()),
       this.buildBtn,
-      tap(el('button.icon-btn', { 'aria-label': 'Zoom in', text: '＋' }), () => app.cam.zoomBy(0.62)),
-      tap(el('button.icon-btn', { 'aria-label': 'Zoom out', text: '－' }), () => app.cam.zoomBy(1.62)),
+      tap(el('button.icon-btn', { 'aria-label': 'Zoom in' }, icon('zoomIn', 21)), () => app.cam.zoomBy(0.62)),
+      tap(el('button.icon-btn', { 'aria-label': 'Zoom out' }, icon('zoomOut', 21)), () => app.cam.zoomBy(1.62)),
       this.timeBtn));
 
     // --- bottom left ---
@@ -78,6 +79,10 @@ export class Hud {
 
     this.buildBtn.classList.toggle('on', app.mode === 'build');
     const night = app.stage ? app.stage.materials.scenery.userData.uniforms.uNight.value : 0;
-    this.timeBtn.textContent = night > 0.6 ? '🌙' : night > 0.2 ? '🌆' : '☀️';
+    const want = night > 0.6 ? 'moon' : night > 0.2 ? 'dusk' : 'sun';
+    if (this.timeBtn.dataset.phase !== want) {
+      this.timeBtn.dataset.phase = want;
+      this.timeBtn.replaceChildren(icon(want, 22));
+    }
   }
 }

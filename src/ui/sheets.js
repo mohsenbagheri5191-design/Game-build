@@ -7,6 +7,7 @@
  * all get you out.
  */
 
+import { icon } from './icons.js';
 import { el, clear, tap, haptic } from './dom.js';
 
 export class SheetHost {
@@ -54,7 +55,7 @@ export class SheetHost {
       el('div', { style: { flex: '1 1 auto', minWidth: 0 } },
         el('h2', { text: title || '' }),
         sub ? el('div.sub', { text: sub }) : null),
-      tap(el('button.icon-btn', { 'aria-label': 'Close', text: '✕' }), () => this.close(id)));
+      tap(el('button.icon-btn', { 'aria-label': 'Close' }, icon('close', 20)), () => this.close(id)));
 
     clear(rec.foot);
     if (footer) { rec.foot.style.display = ''; footer(rec.foot, this); }

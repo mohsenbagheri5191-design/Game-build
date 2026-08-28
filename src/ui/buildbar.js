@@ -8,22 +8,29 @@
 
 import { el, clear, tap, toast, haptic, fmtCredits, confirmDialog, promptDialog } from './dom.js';
 import { thumbImg } from './thumbs.js';
+import { icon } from './icons.js';
 import { getPart } from '../kit/parts.js';
 import { SWATCHES } from '../kit/colors.js';
 import { CONFIG } from '../core/config.js';
 import { openBuildDrawer } from './screens.js';
 import { spanStyles, spanStyleNames } from '../kit/spans.js';
 
+/*
+ * Place, Paint and Erase are what you use minute to minute; the rest are
+ * occasional. Giving all eight the same weight in one row is what made the
+ * bar unreadable, so the three live in `PRIMARY` and get the big buttons.
+ */
 export const TOOLS = [
-  { id: 'place', ico: '➕', label: 'Place' },
-  { id: 'paint', ico: '🎨', label: 'Paint' },
-  { id: 'erase', ico: '🧽', label: 'Erase' },
-  { id: 'move', ico: '✋', label: 'Move' },
-  { id: 'rotate', ico: '🔄', label: 'Rotate' },
-  { id: 'duplicate', ico: '⧉', label: 'Copy' },
-  { id: 'eyedrop', ico: '💧', label: 'Pick' },
-  { id: 'select', ico: '▧', label: 'Select' },
+  { id: 'place', ico: 'place', label: 'Place' },
+  { id: 'paint', ico: 'paint', label: 'Paint' },
+  { id: 'erase', ico: 'erase', label: 'Erase' },
+  { id: 'move', ico: 'move', label: 'Move' },
+  { id: 'rotate', ico: 'rotate', label: 'Rotate' },
+  { id: 'duplicate', ico: 'duplicate', label: 'Copy' },
+  { id: 'eyedrop', ico: 'eyedrop', label: 'Pick' },
+  { id: 'select', ico: 'select', label: 'Select' },
 ];
+const PRIMARY = new Set(['place', 'paint', 'erase']);
 
 export class BuildBar {
   constructor(app, root) {
@@ -61,30 +68,42 @@ export class BuildBar {
     if (part) thumb.append(thumbImg(part.id, part.name));
     held.append(thumb,
       el('div', { style: { minWidth: 0, flex: '1 1 auto' } },
-        el('div.nm', { text: part ? part.name : 'Nothing held' }),
-        el('div.pr', { text: part ? (part.cost ? `${part.cost} cr each` : 'Free') : 'Pick from the catalogue' })),
+        el('div.nm', { text: part ? part.name : 'Nothing held yet' }),
+        el(`div.pr${part && !part.cost ? '.free' : ''}`, {
+          text: part ? (part.cost ? `${part.cost} cr each` : 'Free') : 'Tap Catalogue to choose one' })),
       this.runTotal = el('div.tiny.dim', { style: { textAlign: 'right' }, text: '' }),
-      tap(el('button.btn.sm', { text: 'Catalogue' }), () => openBuildDrawer(app)));
+      tap(el(`button.btn.sm${part ? '' : '.primary'}`, {}, icon('catalogue', 17), el('span', { text: 'Catalogue' })),
+        () => openBuildDrawer(app)));
     this.node.append(held);
 
-    // --- tools ---------------------------------------------------------
-    const row = el('div.tool-row');
-    for (const t of TOOLS) {
+    // --- the three you actually use ------------------------------------
+    const primary = el('div.tool-primary');
+    for (const t of TOOLS.filter((x) => PRIMARY.has(x.id))) {
       const b = el(`button.tool${this.tool === t.id ? '.on' : ''}`, { 'aria-label': t.label },
-        el('span.ico', { text: t.ico }), el('span.lbl', { text: t.label }));
+        el('span.ico', {}, icon(t.ico, 24)), el('span.lbl', { text: t.label }));
+      tap(b, () => this.setTool(t.id));
+      primary.append(b);
+    }
+    this.node.append(primary);
+
+    // --- everything else ------------------------------------------------
+    const row = el('div.tool-row');
+    for (const t of TOOLS.filter((x) => !PRIMARY.has(x.id))) {
+      const b = el(`button.tool${this.tool === t.id ? '.on' : ''}`, { 'aria-label': t.label },
+        el('span.ico', {}, icon(t.ico, 20)), el('span.lbl', { text: t.label }));
       tap(b, () => this.setTool(t.id));
       row.append(b);
     }
     // undo / redo / clear
     const undoBtn = el('button.tool', { 'aria-label': 'Undo', disabled: !app.world.canUndo },
-      el('span.ico', { text: '↶' }), el('span.lbl', { text: 'Undo' }));
+      el('span.ico', {}, icon('undo', 20)), el('span.lbl', { text: 'Undo' }));
     tap(undoBtn, () => {
       const r = app.world.undo();
       if (!r.ok) { toast(r.reason, 'bad'); return; }
       app.audio.undo(); toast(`Undid ${r.label}`); app.refreshLots(); this.render();
     });
     const redoBtn = el('button.tool', { 'aria-label': 'Redo', disabled: !app.world.canRedo },
-      el('span.ico', { text: '↷' }), el('span.lbl', { text: 'Redo' }));
+      el('span.ico', {}, icon('redo', 20)), el('span.lbl', { text: 'Redo' }));
     tap(redoBtn, () => {
       const r = app.world.redo();
       if (!r.ok) { toast(r.reason, 'bad'); return; }
@@ -93,11 +112,12 @@ export class BuildBar {
     row.append(undoBtn, redoBtn);
 
     const gridBtn = el(`button.tool${app.ui.showGrid ? '.on' : ''}`, { 'aria-label': 'Grid' },
-      el('span.ico', { text: '#' }), el('span.lbl', { text: 'Grid' }));
+      el('span.ico', {}, icon('grid', 20)), el('span.lbl', { text: 'Grid' }));
     tap(gridBtn, () => { app.ui.showGrid = !app.ui.showGrid; app.refreshOverlay(); this.render(); });
 
     const lockBtn = el(`button.tool${app.ui.cameraLock ? '.on' : ''}`, { 'aria-label': 'Camera lock' },
-      el('span.ico', { text: app.ui.cameraLock ? '🔒' : '🔓' }), el('span.lbl', { text: 'Camera' }));
+      el('span.ico', {}, icon(app.ui.cameraLock ? 'lockClosed' : 'lockOpen', 20)),
+      el('span.lbl', { text: 'Camera' }));
     tap(lockBtn, () => {
       app.ui.cameraLock = !app.ui.cameraLock;
       app.cam.locked = app.ui.cameraLock;
@@ -106,7 +126,7 @@ export class BuildBar {
     });
 
     const clearBtn = el('button.tool', { 'aria-label': 'Clear lot' },
-      el('span.ico', { text: '🗑' }), el('span.lbl', { text: 'Clear' }));
+      el('span.ico', {}, icon('trash', 20)), el('span.lbl', { text: 'Clear' }));
     tap(clearBtn, async () => {
       if (!app.activeLot) return;
       const n = Object.keys(app.activeLot.parts).length;
@@ -118,7 +138,7 @@ export class BuildBar {
     });
 
     const saveBtn = el('button.tool', { 'aria-label': 'Save design' },
-      el('span.ico', { text: '💾' }), el('span.lbl', { text: 'Save' }));
+      el('span.ico', {}, icon('save', 20)), el('span.lbl', { text: 'Save' }));
     tap(saveBtn, async () => {
       if (!app.activeLot) return;
       const name = await promptDialog('Name this design', 'e.g. Corner cottage');
@@ -132,12 +152,18 @@ export class BuildBar {
 
     // --- storey selector -----------------------------------------------
     const storeys = el('div.storey-row');
-    storeys.append(el('span.tiny.dim', { text: 'STOREY' }));
+    // An icon, not the word "STOREY" — at 390px the word was truncated to
+    // "STO…", which looks like a layout that gave up.
+    storeys.append(el('span.storey-ico', { 'aria-label': 'Storey', title: 'Storey' },
+      icon('layers', 19)));
+    // The pills scroll in their own lane, so adding storeys can never push the
+    // Colours button off the edge of the screen.
+    const storeyScroll = el('div.storey-scroll');
     const maxS = Math.min(CONFIG.grid.maxStoreys, (app.activeLot?.storeys || 1) + 1);
     for (let s = CONFIG.grid.minStorey; s < maxS; s++) {
       const b = el(`div.storey-pill${app.ui.storey === s ? '.on' : ''}`, { text: s < 0 ? 'B' : String(s + 1) });
       tap(b, () => { app.ui.storey = s; app.refreshOverlay(); this.render(); });
-      storeys.append(b);
+      storeyScroll.append(b);
     }
     if (maxS < CONFIG.grid.maxStoreys) {
       const add = el('div.storey-pill', { text: '+' });
@@ -148,10 +174,11 @@ export class BuildBar {
         app.state.touch(); app.refreshOverlay(); this.render();
         toast(`Storey ${app.ui.storey + 1}`);
       });
-      storeys.append(add);
+      storeyScroll.append(add);
     }
-    storeys.append(el('span.spacer'));
-    storeys.append(tap(el('button.btn.sm', { text: '🎨 Colours' }), () => this.toggleColours()));
+    storeys.append(storeyScroll);
+    storeys.append(tap(el('button.btn.sm', {}, icon('paint', 17), el('span', { text: 'Colours' })),
+      () => this.toggleColours()));
     this.node.append(storeys);
 
     // --- span controls, shown only while a span part is selected ---
@@ -163,7 +190,7 @@ export class BuildBar {
       const spanRow = el('div.storey-row');
       spanRow.append(el('span.tiny.dim', {
         text: `${(selPart?.name || 'SPAN').toUpperCase()} ${sel.w}×${sel.d}` }));
-      spanRow.append(tap(el('button.btn.sm.primary', { text: '⤢ Fit to building' }), () => {
+      spanRow.append(tap(el('button.btn.sm.primary', {}, icon('fit', 17), el('span', { text: 'Fit to building' })), () => {
         const r = app.world.fitSpanToBuilding(app.activeLot, app.ui.selectedSlot);
         if (!r.ok) { toast(r.reason, 'bad'); return; }
         app.ui.selectedSlot = r.key;

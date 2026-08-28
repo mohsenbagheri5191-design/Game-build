@@ -5,6 +5,7 @@
  * button, safe-area aware, reachable from the main HUD in at most two taps.
  */
 
+import { icon } from './icons.js';
 import { el, clear, tap, toast, toggle, slider, selectRow, confirmDialog, promptDialog, fmtCredits, fmtRelative, fmtWhen, haptic } from './dom.js';
 import { thumbImg, AvatarView, avatarChip } from './thumbs.js';
 import { allParts, getPart } from '../kit/parts.js';
@@ -34,29 +35,29 @@ export function openMainMenu(app) {
     title: 'Menu',
     sub: `${app.state.s.profile.townName} · Level ${app.state.level}`,
     render: (body) => {
-      const tile = (ico, lbl, fn, badge) => {
-        const t = el('button.menu-tile', {},
-          el('div.ico', { text: ico }), el('div.lbl', { text: lbl }),
+      const tile = (ico, lbl, fn, badge, tone) => {
+        const t = el('button.menu-tile', tone ? { 'data-tone': tone } : {},
+          el('div.ico', {}, icon(ico, 23)), el('div.lbl', { text: lbl }),
           badge ? el('span.badge', { text: String(badge) }) : null);
         return tap(t, fn);
       };
       body.append(el('div.menu-grid', {},
-        tile('🧱', 'Build', () => { app.sheets.close('menu'); app.enterBuild(); }),
-        tile('🗂️', 'Catalogue', () => openBuildDrawer(app)),
-        tile('💰', 'Wallet', () => openWallet(app)),
-        tile('📍', 'My lots', () => openMyLots(app)),
-        tile('🙂', 'Profile', () => openProfile(app)),
-        tile('🧍', 'Avatar', () => openAvatarEditor(app)),
-        tile('🧭', 'Discover', () => openDiscover(app)),
-        tile('👥', 'Friends', () => openFriends(app)),
-        tile('✉️', 'Messages', () => openMessages(app), app.unreadCount() || null),
-        tile('🛍️', 'Shop', () => openShop(app)),
-        tile('🏛️', 'Civic board', () => openCivic(app)),
-        tile('🗺️', 'Map & places', () => openPlaces(app)),
-        tile('🏅', 'Milestones', () => openMilestones(app)),
-        tile('⚙️', 'Settings', () => openSettings(app)),
-        tile('❓', 'Help', () => openHelp(app)),
-        tile('ℹ️', 'About', () => openAbout(app))));
+        tile('build', 'Build', () => { app.sheets.close('menu'); app.enterBuild(); }, null, 'terra'),
+        tile('catalogue', 'Catalogue', () => openBuildDrawer(app)),
+        tile('wallet', 'Wallet', () => openWallet(app)),
+        tile('lots', 'My lots', () => openMyLots(app), null, 'terra'),
+        tile('person', 'Profile', () => openProfile(app), null, 'plum'),
+        tile('avatar', 'Avatar', () => openAvatarEditor(app), null, 'plum'),
+        tile('discover', 'Discover', () => openDiscover(app), null, 'sage'),
+        tile('friends', 'Friends', () => openFriends(app), null, 'sage'),
+        tile('message', 'Messages', () => openMessages(app), app.unreadCount() || null, 'sage'),
+        tile('shop', 'Shop', () => openShop(app)),
+        tile('civic', 'Civic board', () => openCivic(app), null, 'sky'),
+        tile('places', 'Map & places', () => openPlaces(app), null, 'sky'),
+        tile('milestone', 'Milestones', () => openMilestones(app)),
+        tile('settings', 'Settings', () => openSettings(app), null, 'sky'),
+        tile('help', 'Help', () => openHelp(app), null, 'sky'),
+        tile('about', 'About', () => openAbout(app), null, 'sky')));
 
       body.append(el('div.card', { style: { marginTop: '10px' } },
         el('div.row', {},
@@ -135,7 +136,7 @@ export function openBuildDrawer(app) {
         else list = list.filter((p) => p.cat === app.ui.drawerCat);
         if (!list.length) {
           grid.append(el('div.empty', { style: { gridColumn: '1 / -1' } },
-            el('span.ico', { text: '🔍' }), 'Nothing matches that.'));
+            el('span.ico', {}, icon('search', 26)), 'Nothing matches that.'));
           return;
         }
         for (const p of list) grid.append(itemTile(app, p));
@@ -157,12 +158,12 @@ function itemTile(app, part, compact = false) {
   node.append(thumb);
   if (!compact) {
     node.append(el('div.nm', { text: part.name }));
-    if (earnedLocked) node.append(el('div.lk', { text: '🏅 Earned' }));
+    if (earnedLocked) node.append(el('div.lk', {}, icon('milestone', 13), el('span', { text: 'Earned' })));
     else if (locked) node.append(el('div.lk', { text: `Level ${part.level}` }));
     else node.append(el('div.pr', { text: part.cost ? `${part.cost} cr` : 'Free' }));
   }
   const favOn = (app.ui.favourites || []).includes(part.id);
-  const fav = el('div.fav', { text: favOn ? '★' : '☆' });
+  const fav = el('div.fav', {}, icon(favOn ? 'star' : 'starOutline', 16));
   tap(fav, (e) => {
     e.stopPropagation();
     app.ui.favourites ||= [];
@@ -170,7 +171,7 @@ function itemTile(app, part, compact = false) {
     if (i >= 0) app.ui.favourites.splice(i, 1);
     else app.ui.favourites.unshift(part.id);
     app.saveUiPrefs();
-    fav.textContent = app.ui.favourites.includes(part.id) ? '★' : '☆';
+    fav.replaceChildren(icon(app.ui.favourites.includes(part.id) ? 'star' : 'starOutline', 16));
   });
   node.append(fav);
 
@@ -227,7 +228,7 @@ export function openWallet(app) {
       body.append(el('div.tiny.dim', { style: { margin: '12px 0 6px' }, text: 'TRANSACTION LEDGER' }));
       const page = st.ledgerPage(0, 120);
       if (!page.length) {
-        body.append(el('div.empty', {}, el('span.ico', { text: '🧾' }), 'No transactions yet.'));
+        body.append(el('div.empty', {}, el('span.ico', {}, icon('ledger', 26)), 'No transactions yet.'));
       } else {
         for (const e of page) {
           body.append(el('div.list-item', {},
@@ -259,7 +260,7 @@ export function openMyLots(app) {
     render: (body) => {
       const lots = app.world.ownedLots();
       if (!lots.length) {
-        body.append(el('div.empty', {}, el('span.ico', { text: '📍' }),
+        body.append(el('div.empty', {}, el('span.ico', {}, icon('pin', 26)),
           'You do not hold any lots yet. Tap a lot on the map to claim one.'));
         return;
       }
@@ -440,7 +441,7 @@ export function openProfile(app) {
             el('div.small.muted', { text: p.townName }),
             el('div.row', { style: { marginTop: '6px', gap: '5px' } },
               el('span.chip', { text: `Level ${st.level}` }),
-              p.founder ? el('span.chip.good', { text: '★ Founder' }) : null))),
+              p.founder ? el('span.chip.good', {}, icon('star', 13), el('span', { text: 'Founder' })) : null))),
         el('div', { style: { marginTop: '12px' } },
           el('div.row.tiny.dim', {}, el('span', { text: 'XP' }), el('span.spacer'),
             el('span', { text: xp.atMax ? 'Max level' : `${xp.into} / ${xp.need}` })),
@@ -583,7 +584,7 @@ export function openVisit(app, nb) {
     },
     footer: (foot) => {
       foot.append(
-        tap(el('button.btn', { text: '💬 Note' }), async () => {
+        tap(el('button.btn', {}, icon('message', 18), el('span', { text: 'Note' })), async () => {
           const t = await promptDialog('Leave a note', 'Say something kind');
           if (!t) return;
           (app.state.s.social.notes[nb.id] ||= []).push({ from: app.state.s.profile.name, text: t, t: Date.now() });
@@ -591,7 +592,7 @@ export function openVisit(app, nb) {
           toast('Note left', 'good');
           app.sheets.refresh('visit');
         }),
-        tap(el('button.btn.primary', { text: `💰 Tip ${CONFIG.economy.tipGiven}` }), () => {
+        tap(el('button.btn.primary', {}, icon('coin', 18), el('span', { text: `Tip ${CONFIG.economy.tipGiven}` })), () => {
           const r = tip(app.state, nb);
           if (!r.ok) { toast(r.reason, 'bad'); return; }
           app.audio.coin();
@@ -624,7 +625,7 @@ export function openFriends(app) {
 
       body.append(el('div.tiny.dim', { style: { marginBottom: '6px' }, text: `YOUR FRIENDS (${friends.length})` }));
       if (!friends.length) {
-        body.append(el('div.empty', {}, el('span.ico', { text: '👥' }), 'No friends yet. Add someone below.'));
+        body.append(el('div.empty', {}, el('span.ico', {}, icon('friends', 26)), 'No friends yet. Add someone below.'));
       }
       for (const id of friends) {
         const nb = app.neighbours.find((n) => n.id === id);
@@ -635,7 +636,7 @@ export function openFriends(app) {
             el('div.t1', { text: nb.name }),
             el('div.t2', { text: `${nb.town} · currently in ${app.city.neighbourhoodAt(...neighbourPos(app, nb))}` })),
           tap(el('button.btn.sm', { text: 'Visit' }), () => openVisit(app, nb)),
-          tap(el('button.btn.sm.danger', { text: '✕' }), () => {
+          tap(el('button.btn.sm.danger', { 'aria-label': 'Remove' }, icon('close', 16)), () => {
             app.state.s.social.friends = friends.filter((f) => f !== id);
             app.state.touch(); app.sheets.refresh('friends');
           })));
@@ -713,7 +714,7 @@ export function openMessages(app, focusId = null) {
 
       const ids = Object.keys(threads);
       const others = app.neighbours.filter((n) => !ids.includes(n.id)).slice(0, 8);
-      if (!ids.length) body.append(el('div.empty', {}, el('span.ico', { text: '✉️' }), 'No threads yet. Start one below.'));
+      if (!ids.length) body.append(el('div.empty', {}, el('span.ico', {}, icon('message', 26)), 'No threads yet. Start one below.'));
       for (const id of ids) {
         const nb = app.neighbours.find((n) => n.id === id);
         if (!nb) continue;
@@ -815,7 +816,7 @@ export function openCivic(app) {
               el('div', { style: { fontWeight: '800' }, text: proj.name }),
               el('div.tiny.dim', { text: proj.desc })),
             el('span.spacer'),
-            pr.complete ? el('span.chip.good', { text: '✓ Done' }) : el('span.chip', { text: `${pr.given}/${pr.target}` })),
+            pr.complete ? el('span.chip.good', {}, icon('check', 13), el('span', { text: 'Done' })) : el('span.chip', { text: `${pr.given}/${pr.target}` })),
           el('div.bar', { style: { marginTop: '9px' } }, el('i', { style: { width: `${Math.round(pr.pct * 100)}%` } })),
           el('div.row', { style: { marginTop: '9px', gap: '6px' } },
             el('span.chip', { text: `Needs ${part?.name || proj.item}` }),
@@ -866,13 +867,13 @@ export function openPlaces(app) {
         const q = app.ui.placeQuery.trim();
         const list = q ? app.city.searchPlaces(q, 60) : defaultPlaces(app);
         if (!list.length) {
-          results.append(el('div.empty', {}, el('span.ico', { text: '🗺️' }), 'Nothing found.'));
+          results.append(el('div.empty', {}, el('span.ico', {}, icon('places', 26)), 'Nothing found.'));
           return;
         }
         for (const r of list) {
           results.append(tap(el('div.list-item', {},
             el('div', { style: { fontSize: '19px', width: '26px', textAlign: 'center' },
-              text: r.kind === 'street' ? '🛣️' : r.kind === 'landmark' ? '🏙️' : '📍' }),
+              }, icon(r.kind === 'street' ? 'road' : r.kind === 'landmark' ? 'skyline' : 'pin', 20)),
             el('div.txt', {},
               el('div.t1', { text: r.name }),
               el('div.t2', { text: `${titleCase(r.sub || r.kind)}` })),
@@ -957,8 +958,8 @@ export function openSettings(app) {
       body.append(el('div.card', {},
         el('div.kv', {}, el('span', { text: 'Save size' }), el('b', { text: `${(app.state.saveSize / 1024).toFixed(1)} KB` })),
         el('div.row', { style: { marginTop: '10px', gap: '6px', flexWrap: 'wrap' } },
-          tap(el('button.btn.sm', { text: '⬇ Export' }), () => exportSave(app)),
-          tap(el('button.btn.sm', { text: '⬆ Import' }), () => importSave(app)),
+          tap(el('button.btn.sm', {}, icon('down', 17), el('span', { text: 'Export' })), () => exportSave(app)),
+          tap(el('button.btn.sm', {}, icon('up', 17), el('span', { text: 'Import' })), () => importSave(app)),
           tap(el('button.btn.sm.danger', { text: 'Reset save' }), async () => {
             const ok = await confirmDialog('Reset everything?',
               'Your lots, your builds, your credits and your progress are all erased. This cannot be undone.', 'Erase it all');
@@ -971,7 +972,7 @@ export function openSettings(app) {
       body.append(el('div.card', {},
         el('div.small.muted', { style: { lineHeight: '1.5' },
           text: 'So the whole kit can be tested end to end, this jumps you to maximum level with a large balance. It is a testing convenience, not a purchase.' }),
-        tap(el('button.btn.sm', { style: { marginTop: '9px' }, text: '🔓 Max level + 500,000 cr' }), () => {
+        tap(el('button.btn.sm', { style: { marginTop: '9px' } }, icon('lockOpen', 17), el('span', { text: 'Max level + 500,000 cr' })), () => {
           app.state.commit({
             entries: [{ type: 'cheat', amount: 500000, note: 'Testing grant' }],
             apply: (st) => {
@@ -1039,7 +1040,7 @@ export function openMilestones(app) {
       for (const m of MILESTONES) {
         const done = app.state.s.milestones.includes(m.id);
         body.append(el('div.list-item', {},
-          el('div', { style: { fontSize: '21px', width: '30px', textAlign: 'center' }, text: done ? '🏅' : '🔒' }),
+          el('div', { style: { width: '30px', display: 'flex', justifyContent: 'center', color: done ? 'var(--accent-deep)' : 'var(--ink-3)' } }, icon(done ? 'milestone' : 'lockClosed', 21)),
           el('div.txt', {},
             el('div.t1', { text: m.name }),
             el('div.t2', { text: m.desc })),
@@ -1079,7 +1080,7 @@ export function openHelp(app) {
         el('p.small.muted', { style: { lineHeight: '1.5' },
           text: 'Placing things is the biggest earner — you are paid to build. Lots cost credits up front and upkeep every day, and each extra lot costs more than the last. Undo is always free.' })));
 
-      body.append(tap(el('button.btn.primary', { style: { width: '100%', marginTop: '12px' }, text: '▶ Replay the walkthrough' }),
+      body.append(tap(el('button.btn.primary', { style: { width: '100%', marginTop: '12px' } }, icon('play', 18), el('span', { text: 'Replay the walkthrough' })),
         () => { app.sheets.closeAll(); app.startTutorial(true); }));
     },
   });
@@ -1131,7 +1132,7 @@ export function openContextMenu(app, ctx) {
     render: (body) => {
       for (const a of ctx.actions) {
         body.append(tap(el('div.list-item', {},
-          el('div', { style: { fontSize: '19px', width: '28px', textAlign: 'center' }, text: a.ico }),
+          el('div', { style: { width: '30px', display: 'flex', justifyContent: 'center', color: 'var(--accent-deep)' } }, icon(a.ico, 21)),
           el('div.txt', {}, el('div.t1', { text: a.label }),
             a.hint ? el('div.t2', { text: a.hint }) : null)),
         () => { app.sheets.close('context'); a.run(); }));
