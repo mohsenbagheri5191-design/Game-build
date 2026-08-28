@@ -21,7 +21,7 @@ import {
   receiveVisit, CIVIC_PROJECTS, civicProgress, randomNote,
 } from './game/sim.js';
 import { getPart, partGeometry, allParts } from './kit/parts.js';
-import { ROOF_STYLES, ROOF_STYLE_NAMES, roofSpanGeometry } from './kit/roof.js';
+import { spanGeometry, spanStyles, spanStyleNames } from './kit/spans.js';
 import './kit/decor.js';
 import { hexToRgb01, defaultColorsFor } from './kit/colors.js';
 import { makeInstanced, setInstanceColors, flushInstanceColors } from './render/props.js';
@@ -231,7 +231,7 @@ class App {
       openCivic, openPlaces, openSettings, openMilestones, openHelp, openAbout, openContextMenu,
     };
     window.__kit = { allParts, getPart, partGeometry };
-    window.__roof = { roofSpanGeometry, ROOF_STYLES, ROOF_STYLE_NAMES };
+    window.__spans = { spanGeometry, spanStyles, spanStyleNames };
     window.__world = { lotGrid, nearestSlot, slotKey, slotValid, slotTransform, slotsAlong, parseSlot, obbOverlap, spanValid, spanTransform };
     window.__save = { migrate };
     window.__scenery = { buildChunk };
@@ -305,17 +305,18 @@ class App {
       const part = getPart(near.partId);
       const rec = lot?.parts?.[near.key];
       if (rec && rec.w) {
-        // roofs get their own menu: fit, shape, colour, erase
-        const styleActions = ROOF_STYLES.filter((st) => st !== rec.style).map((st) => ({
-          ico: '⌂', label: `Shape: ${ROOF_STYLE_NAMES[st]}`,
+        // spans get their own menu: fit, shape, colour, erase
+        const names = spanStyleNames(rec.part);
+        const styleActions = spanStyles(rec.part).filter((st) => st !== rec.style).map((st) => ({
+          ico: '⌂', label: `Shape: ${names[st]}`,
           run: () => {
             this.world.setSpanStyle(lot, near.key, st);
             this.audio.snap(); this.refreshLots();
           },
         }));
         openContextMenu(this, {
-          title: `Roof ${rec.w} × ${rec.d}`,
-          sub: `${ROOF_STYLE_NAMES[rec.style] || 'Gable'} · ${lot.name}`,
+          title: `${part?.name || 'Span'} ${rec.w} × ${rec.d}`,
+          sub: `${names[rec.style] || ''} · ${lot.name}`.replace(/^ · /, ''),
           actions: [
             { ico: '⤢', label: 'Fit to the building below', hint: 'Snap it to the walls underneath',
               run: () => {
@@ -323,7 +324,7 @@ class App {
                 if (!res.ok) { toast(res.reason, 'bad'); return; }
                 this.ui.selectedSlot = res.key;
                 this.activeLot = lot;
-                toast(`Roof fitted — ${res.w} × ${res.d}`, 'good');
+                toast(`Fitted — ${res.w} × ${res.d}`, 'good');
                 this.audio.place();
                 this.refreshLots(); this.refreshOverlay();
               } },
@@ -337,7 +338,7 @@ class App {
                 toast('Drag any of the four handles');
               } },
             ...styleActions,
-            { ico: '🎨', label: 'Colour this roof',
+            { ico: '🎨', label: `Colour this ${(part?.name || 'part').toLowerCase()}`,
               run: () => { this.activeLot = lot; this.ui.selectedSlot = near.key; this.ui.showColours = true; this.enterBuild(); this.bar.render(); } },
             { ico: '🧽', label: 'Erase',
               run: () => { const e = this.world.erase(lot, near.key); if (e.ok) { this.audio.erase(); toast(`Removed · +${e.refund} cr`); this.ui.selectedSlot = null; this.refreshLots(); this.refreshOverlay(); } } },
@@ -435,7 +436,7 @@ class App {
           r.applied = want;
           this.audio.snap();
           const rec = this.activeLot.parts[this.ui.selectedSlot];
-          this.hud.setHint(`Roof ${rec.w} × ${rec.d}`);
+          this.hud.setHint(`${getPart(rec.part)?.name || 'Span'} ${rec.w} × ${rec.d}`);
           this.bar.setRunTotal(rec.w * rec.d, getPart(rec.part).cost * rec.w * rec.d);
         }
       }
@@ -526,19 +527,21 @@ class App {
         const part = getPart(this.ui.heldPart);
         if (!part) return;
         if (part.span) {
-          // A roof arrives already covering the building below it, which is
-          // what people expect and saves a resize they should not have to do.
-          const fit = this.world.buildingFootprint(lot, slot.storey);
+          // A roof or a floor arrives already covering the building below it,
+          // which is what people expect and saves a resize they should not
+          // have to do. An awning is a canopy over one doorway, so it does not
+          // — it lands where you tapped, at its own size.
           const g2 = lotGrid(this.city.parcelById(lot.parcelId));
           let i = slot.i, j = slot.j, w = part.spanDefault[0], d = part.spanDefault[1];
+          const fit = part.autoFit ? this.world.buildingFootprint(lot, slot.storey) : null;
           if (fit && spanValid(g2, { ...slot, i: fit.i, j: fit.j }, fit.w, fit.d)) {
             i = fit.i; j = fit.j; w = fit.w; d = fit.d;
           } else {
-            w = Math.min(w, g2.cols - i); d = Math.min(d, g2.rows - j);
+            w = Math.max(1, Math.min(w, g2.cols - i)); d = Math.max(1, Math.min(d, g2.rows - j));
           }
           const sk = slotKey('c', slot.storey, i, j);
           const rs = this.world.placeSpan(lot, sk, part.id, w, d, {
-            colors: this.bar.colors, style: this.ui.roofStyle || part.style,
+            colors: this.bar.colors, style: this.ui.spanStyle?.[part.id] || part.style,
           });
           if (!rs.ok) { toast(rs.reason, 'bad'); this.audio.error(); return; }
           this.audio.place();
@@ -546,7 +549,7 @@ class App {
           this.ui.selectedSlot = sk;
           this.refreshLots();
           this.refreshOverlay();
-          toast(`Roof ${w}x${d} — drag a side to resize`);
+          toast(`${part.name} ${w}×${d} — drag a side to resize`);
           return;
         }
         const r = this.world.place(lot, key, part.id, { colors: this.bar.colors, rot: this.ui.rot || 0 });

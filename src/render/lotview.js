@@ -12,7 +12,7 @@ import { CONFIG } from '../core/config.js';
 import { getPart, partGeometry } from '../kit/parts.js';
 import { hexToRgb01 } from '../kit/colors.js';
 import { lotGrid, parseSlot, slotTransform, slotValid, spanTransform, spanValid } from '../game/world.js';
-import { roofSpanGeometry } from '../kit/roof.js';
+import { spanGeometry } from '../kit/spans.js';
 import { makeInstanced, setInstanceColors, flushInstanceColors } from './props.js';
 import { makeOverlayMaterial } from './materials.js';
 
@@ -98,7 +98,7 @@ export class LotView {
       const first = list[0];
       const partId = first.rec.part;
       const geom = first.isSpan
-        ? roofSpanGeometry(first.rec.w, first.rec.d, first.rec.style || 'gable')
+        ? spanGeometry(partId, first.rec.w, first.rec.d, first.rec.style)
         : partGeometry(partId);
       if (!geom) continue;
       let pool = this.pools.get(poolKey);

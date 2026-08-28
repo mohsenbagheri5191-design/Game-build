@@ -12,36 +12,20 @@
  */
 
 import * as THREE from 'three';
-import { MeshBuilder } from './mesh.js';
 import { CONFIG } from '../core/config.js';
 
 const U = CONFIG.grid.unit;
 
 export const ROOF_STYLES = ['gable', 'hip', 'shed', 'flat'];
-export const ROOF_STYLE_NAMES = {
-  gable: 'Gable', hip: 'Hipped', shed: 'Single slope', flat: 'Flat',
-};
 
 const OVERHANG = 0.34;   // eaves projection beyond the walls
 const PITCH = 0.46;      // rise per metre of run
 const FASCIA = 0.14;     // depth of the eaves board
-const cache = new Map();
-
-/** Cached geometry for one roof size and style. */
-export function roofSpanGeometry(cols, rows, style = 'gable') {
-  const key = `${cols}x${rows}:${style}`;
-  let g = cache.get(key);
-  if (g) return g;
-  const mb = new MeshBuilder();
-  buildRoof(mb, Math.max(1, cols), Math.max(1, rows), style);
-  g = mb.build(`roof-${key}`);
-  cache.set(key, g);
-  return g;
-}
 
 const P = (x, y, z) => new THREE.Vector3(x, y, z);
 
-function buildRoof(mb, cols, rows, style) {
+/** Span builder, registered in kit/spans.js. Caching lives there. */
+export function roofSpan(mb, cols, rows, style) {
   const W = cols * U, D = rows * U;
   const hw = W / 2 + OVERHANG;
   const hd = D / 2 + OVERHANG;
@@ -87,10 +71,10 @@ function buildGable(mb, hw, hd, h, alongX) {
     mb.tri(P(-hw, 0, -hd), P(-hw, 0, hd), P(-hw, h, 0), [0.86, 0.86, 1.0]);
     ridgeCap(mb, -hw, hw, h, true);
   } else {
-    mb.quad(P(hw, 0, -hd), P(hw, 0, hd), P(0, h, hd), P(0, h, -hd), [0.9, 0.9, 1.08, 1.08]);
-    mb.quad(P(-hw, 0, hd), P(-hw, 0, -hd), P(0, h, -hd), P(0, h, hd), [0.78, 0.78, 0.98, 0.98]);
-    mb.tri(P(hw, 0, hd), P(-hw, 0, hd), P(0, h, hd), [0.94, 0.94, 1.02]);
-    mb.tri(P(-hw, 0, -hd), P(hw, 0, -hd), P(0, h, -hd), [0.86, 0.86, 1.0]);
+    mb.quad(P(0, h, -hd), P(0, h, hd), P(hw, 0, hd), P(hw, 0, -hd), [1.08, 1.08, 0.9, 0.9]);
+    mb.quad(P(0, h, hd), P(0, h, -hd), P(-hw, 0, -hd), P(-hw, 0, hd), [0.98, 0.98, 0.78, 0.78]);
+    mb.tri(P(-hw, 0, hd), P(hw, 0, hd), P(0, h, hd), [0.94, 0.94, 1.02]);
+    mb.tri(P(hw, 0, -hd), P(-hw, 0, -hd), P(0, h, -hd), [0.86, 0.86, 1.0]);
     ridgeCap(mb, -hd, hd, h, false);
   }
 }
@@ -108,10 +92,10 @@ function buildHip(mb, hw, hd, h, alongX) {
   } else {
     const r = Math.min(hw, hd * 0.9);
     const z0 = -hd + r, z1 = hd - r;
-    mb.quad(P(hw, 0, -hd), P(hw, 0, hd), P(0, h, z1), P(0, h, z0), [0.9, 0.9, 1.08, 1.08]);
-    mb.quad(P(-hw, 0, hd), P(-hw, 0, -hd), P(0, h, z0), P(0, h, z1), [0.78, 0.78, 0.98, 0.98]);
-    mb.tri(P(hw, 0, hd), P(-hw, 0, hd), P(0, h, z1), [0.96, 0.96, 1.04]);
-    mb.tri(P(-hw, 0, -hd), P(hw, 0, -hd), P(0, h, z0), [0.84, 0.84, 1.0]);
+    mb.quad(P(0, h, z0), P(0, h, z1), P(hw, 0, hd), P(hw, 0, -hd), [1.08, 1.08, 0.9, 0.9]);
+    mb.quad(P(0, h, z1), P(0, h, z0), P(-hw, 0, -hd), P(-hw, 0, hd), [0.98, 0.98, 0.78, 0.78]);
+    mb.tri(P(-hw, 0, hd), P(hw, 0, hd), P(0, h, z1), [0.96, 0.96, 1.04]);
+    mb.tri(P(hw, 0, -hd), P(-hw, 0, -hd), P(0, h, z0), [0.84, 0.84, 1.0]);
     ridgeCap(mb, z0, z1, h, false);
   }
 }
@@ -125,7 +109,7 @@ function buildShed(mb, hw, hd) {
   mb.tri(P(hw, 0, hd), P(hw, 0, -hd), P(hw, h, -hd), [0.96, 0.96, 1.02]);
   mb.tri(P(-hw, 0, -hd), P(-hw, 0, hd), P(-hw, h, -hd), [0.84, 0.84, 1.0]);
   mb.zoneOf(1);
-  mb.quad(P(-hw, 0, -hd), P(hw, 0, -hd), P(hw, h, -hd), P(-hw, h, -hd), [0.7, 0.7, 0.92, 0.92]);
+  mb.quad(P(hw, 0, -hd), P(-hw, 0, -hd), P(-hw, h, -hd), P(hw, h, -hd), [0.7, 0.7, 0.92, 0.92]);
   mb.quad(P(-hw, 0, hd), P(-hw, 0, -hd), P(hw, 0, -hd), P(hw, 0, hd), [0.62, 0.62, 0.62, 0.62]);
   mb.push(); mb.translate(0, 0.02, hd);
   mb.chamfer(hw * 2, 0.13, FASCIA, 0.02, { centreY: true }); mb.pop();
@@ -153,25 +137,26 @@ function buildFlat(mb, hw, hd) {
   const iT = inner(top), iD = inner(deck);
 
   mb.zoneOf(1);
-  // underside
-  mb.quad(o0[0], o0[3], o0[2], o0[1], [0.6, 0.6, 0.6, 0.6]);
-  // outer walls
+  // underside, facing down
+  mb.quad(o0[0], o0[1], o0[2], o0[3], [0.6, 0.6, 0.6, 0.6]);
+  // outer walls, facing out
   for (let k = 0; k < 4; k++) {
-    const a = o0[k], b = o0[(k + 1) % 4];
-    const c = oT[(k + 1) % 4], d = oT[k];
-    mb.quad(a, b, c, d, [0.76, 0.76, 1.0, 1.0]);
+    const j = (k + 1) % 4;
+    mb.quad(o0[j], o0[k], oT[k], oT[j], [0.76, 0.76, 1.0, 1.0]);
   }
-  // parapet coping
+  // parapet coping, facing up
   for (let k = 0; k < 4; k++) {
-    mb.quad(oT[k], oT[(k + 1) % 4], iT[(k + 1) % 4], iT[k], [1.08, 1.08, 1.02, 1.02]);
+    const j = (k + 1) % 4;
+    mb.quad(iT[k], iT[j], oT[j], oT[k], [1.02, 1.02, 1.08, 1.08]);
   }
-  // inner walls, down into the well
+  // inner walls, facing in toward the well
   for (let k = 0; k < 4; k++) {
-    mb.quad(iT[k], iT[(k + 1) % 4], iD[(k + 1) % 4], iD[k], [0.7, 0.7, 0.62, 0.62]);
+    const j = (k + 1) % 4;
+    mb.quad(iD[k], iD[j], iT[j], iT[k], [0.62, 0.62, 0.7, 0.7]);
   }
-  // the deck itself
+  // the deck itself, facing up
   mb.zoneOf(0);
-  mb.quad(iD[0], iD[1], iD[2], iD[3], [1.04, 1.04, 1.04, 1.04]);
+  mb.quad(iD[3], iD[2], iD[1], iD[0], [1.04, 1.04, 1.04, 1.04]);
 }
 
 function ridgeCap(mb, a, b, h, alongX) {

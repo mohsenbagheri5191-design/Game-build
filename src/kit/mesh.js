@@ -126,13 +126,16 @@ export class MeshBuilder {
     const p = (x, y, z) => new THREE.Vector3(x, y, z);
     const b = [p(-hw, y0, -hd), p(hw, y0, -hd), p(hw, y0, hd), p(-hw, y0, hd)];
     const t = [p(-tw, y1, -td), p(tw, y1, -td), p(tw, y1, td), p(-tw, y1, td)];
-    this.quad(b[3], b[2], b[1], b[0], [shadeBottom, shadeBottom, shadeBottom, shadeBottom]);
-    this.quad(t[0], t[1], t[2], t[3], [shadeTop, shadeTop, shadeTop, shadeTop]);
+    // Wound so every face points out of the solid. Flat shading takes the
+    // normal from the winding, so a face turned the wrong way is lit from
+    // behind — it does not vanish, it just goes dull. See test-normals.mjs.
+    this.quad(b[0], b[1], b[2], b[3], [shadeBottom, shadeBottom, shadeBottom, shadeBottom]);
+    this.quad(t[3], t[2], t[1], t[0], [shadeTop, shadeTop, shadeTop, shadeTop]);
     const s = [shadeBottom, shadeBottom, 1, 1];
-    this.quad(b[0], b[1], t[1], t[0], s);
-    this.quad(b[1], b[2], t[2], t[1], s);
-    this.quad(b[2], b[3], t[3], t[2], s);
-    this.quad(b[3], b[0], t[0], t[3], s);
+    this.quad(b[1], b[0], t[0], t[1], s);
+    this.quad(b[2], b[1], t[1], t[2], s);
+    this.quad(b[3], b[2], t[2], t[3], s);
+    this.quad(b[0], b[3], t[3], t[0], s);
     return this;
   }
 
@@ -150,15 +153,17 @@ export class MeshBuilder {
     const cc = Math.min(c, Math.min(hw, hd) * 0.7);
     const p = (x, y, z) => new THREE.Vector3(x, y, z);
 
-    // an octagonal ring: the four faces plus four chamfer strips
+    // An octagonal ring: the four faces plus four chamfer strips. Ordered so
+    // that band() from a lower ring to a higher one faces outward and fan()
+    // caps face up — see the winding note in box().
     const ring = (y, inset) => {
       const x = hw - inset, z = hd - inset;
       const xc = x - cc, zc = z - cc;
       return [
-        p(-xc, y, -z), p(xc, y, -z),
-        p(x, y, -zc), p(x, y, zc),
-        p(xc, y, z), p(-xc, y, z),
-        p(-x, y, zc), p(-x, y, -zc),
+        p(-xc, y, -z), p(-x, y, -zc),
+        p(-x, y, zc), p(-xc, y, z),
+        p(xc, y, z), p(x, y, zc),
+        p(x, y, -zc), p(xc, y, -z),
       ];
     };
     const lo = ring(by, 0), hi = ring(ty, 0);
@@ -189,21 +194,31 @@ export class MeshBuilder {
     const p = (x, y, z) => new THREE.Vector3(x, y, z);
     const a = p(-hw, 0, -hd), b = p(hw, 0, -hd), c = p(hw, 0, hd), d2 = p(-hw, 0, hd);
     const r0 = p(px, h, -hd), r1 = p(px, h, hd);
-    this.quad(d2, c, b, a, [0.7, 0.7, 0.7, 0.7]);
-    this.tri(a, b, r0, [0.86, 0.86, 1]);
-    this.tri(c, d2, r1, [0.86, 0.86, 1]);
-    this.quad(b, c, r1, r0, [0.9, 0.9, 1.06, 1.06]);
-    this.quad(d2, a, r0, r1, [0.9, 0.9, 1.06, 1.06]);
+    this.quad(a, b, c, d2, [0.7, 0.7, 0.7, 0.7]);
+    this.tri(b, a, r0, [0.86, 0.86, 1]);
+    this.tri(d2, c, r1, [0.86, 0.86, 1]);
+    this.quad(r0, r1, c, b, [1.06, 1.06, 0.9, 0.9]);
+    this.quad(r1, r0, a, d2, [1.06, 1.06, 0.9, 0.9]);
     return this;
   }
 
   // -------------------------------------------------------------------------
   // ROUND FORMS
   // -------------------------------------------------------------------------
-  ringPts(y, r, seg, phase = 0, sx = 1, sz = 1) {
+  /**
+   * A ring of points around Y.
+   *
+   * `flip` runs the ring the other way round. Which way a ring turns decides
+   * which way every face built from it points: band() from a low ring to a
+   * high one faces outward only for a flipped ring, and a fan() cap faces up
+   * only for a flipped one. Shapes that stack downward (sphere) want the
+   * unflipped ring; shapes that stack upward (cylinder, cone, lathe) want the
+   * flipped one. Covered by test-normals.mjs.
+   */
+  ringPts(y, r, seg, phase = 0, sx = 1, sz = 1, flip = false) {
     const out = [];
     for (let i = 0; i < seg; i++) {
-      const a = phase + (i / seg) * Math.PI * 2;
+      const a = phase + ((flip ? -i : i) / seg) * Math.PI * 2;
       out.push(new THREE.Vector3(Math.cos(a) * r * sx, y, Math.sin(a) * r * sz));
     }
     return out;
@@ -214,10 +229,10 @@ export class MeshBuilder {
     const y0 = centreY ? -h / 2 : 0, y1 = y0 + h;
     if (chamfer > 0) {
       const c = Math.min(chamfer, h * 0.3, r * 0.4);
-      const b0 = this.ringPts(y0, r - c, seg, phase);
-      const b1 = this.ringPts(y0 + c, r, seg, phase);
-      const t1 = this.ringPts(y1 - c, rTop, seg, phase);
-      const t0 = this.ringPts(y1, rTop - c, seg, phase);
+      const b0 = this.ringPts(y0, r - c, seg, phase, 1, 1, true);
+      const b1 = this.ringPts(y0 + c, r, seg, phase, 1, 1, true);
+      const t1 = this.ringPts(y1 - c, rTop, seg, phase, 1, 1, true);
+      const t0 = this.ringPts(y1, rTop - c, seg, phase, 1, 1, true);
       if (capBottom) this.fan(b0.slice().reverse(), false);
       this.band(b0, b1, 0.72, 0.86);
       this.band(b1, t1, 0.86, 1.0);
@@ -225,8 +240,8 @@ export class MeshBuilder {
       if (capTop) this.fan(t0, false);
       return this;
     }
-    const b = this.ringPts(y0, r, seg, phase);
-    const t = this.ringPts(y1, rTop, seg, phase);
+    const b = this.ringPts(y0, r, seg, phase, 1, 1, true);
+    const t = this.ringPts(y1, rTop, seg, phase, 1, 1, true);
     if (capBottom) this.fan(b.slice().reverse(), false);
     this.band(b, t, 0.8, 1.02);
     if (capTop) this.fan(t, false);
@@ -235,7 +250,7 @@ export class MeshBuilder {
 
   cone(r, h, seg = 8, opt = {}) {
     const { phase = 0, capBottom = true } = opt;
-    const b = this.ringPts(0, r, seg, phase);
+    const b = this.ringPts(0, r, seg, phase, 1, 1, true);
     const apex = new THREE.Vector3(0, h, 0);
     if (capBottom) this.fan(b.slice().reverse(), false);
     for (let i = 0; i < seg; i++) {
@@ -259,18 +274,32 @@ export class MeshBuilder {
     for (let i = 0; i < rings; i++) {
       const a = levels[i], b = levels[i + 1];
       const sa = 1.06 - (i / rings) * 0.36, sb = 1.06 - ((i + 1) / rings) * 0.36;
-      if (a.length === 1) { for (let j = 0; j < b.length; j++) this.tri(a[0], b[j], b[(j + 1) % b.length], [sa, sb, sb]); }
+      // Levels run top to bottom here, so the first cap is the north pole and
+      // the last is the south. They need opposite windings to both face out;
+      // giving them the same one is how a sphere ends up half inside out.
+      if (a.length === 1) { for (let j = 0; j < b.length; j++) this.tri(a[0], b[(j + 1) % b.length], b[j], [sa, sb, sb]); }
       else if (b.length === 1) { for (let j = 0; j < a.length; j++) this.tri(a[j], a[(j + 1) % a.length], b[0], [sa, sa, sb]); }
       else this.band(a, b, sa, sb);
     }
     return this;
   }
 
-  /** Revolve a 2D profile [[r,y],...] around Y. */
+  /**
+   * Revolve a 2D profile [[r,y],...] around Y.
+   *
+   * Which way the profile runs decides which way the surface faces, and it is
+   * natural to write a falling shape — a sheet of water, a drooping petal —
+   * from the top down. So the profile is normalised to ascend here rather than
+   * quietly turning those shapes inside out.
+   */
   lathe(profile, seg = 8, opt = {}) {
-    const { phase = 0, closeTop = false, closeBottom = false } = opt;
+    let { phase = 0, closeTop = false, closeBottom = false } = opt;
+    if (profile.length > 1 && profile[profile.length - 1][1] < profile[0][1]) {
+      profile = profile.slice().reverse();
+      const t = closeTop; closeTop = closeBottom; closeBottom = t;
+    }
     const rings = profile.map(([r, y]) =>
-      r < 1e-5 ? [new THREE.Vector3(0, y, 0)] : this.ringPts(y, r, seg, phase));
+      r < 1e-5 ? [new THREE.Vector3(0, y, 0)] : this.ringPts(y, r, seg, phase, 1, 1, true));
     for (let i = 0; i < rings.length - 1; i++) {
       const a = rings[i], b = rings[i + 1];
       const sa = 0.82 + (i / rings.length) * 0.26, sb = 0.82 + ((i + 1) / rings.length) * 0.26;
@@ -305,16 +334,26 @@ export class MeshBuilder {
   /** Extrude a closed 2D polygon [[x,z],...] (CCW) upward by h. */
   extrude(poly, h, opt = {}) {
     const { y0 = 0, capTop = true, capBottom = true, shadeBottom = 0.72, inset = 0 } = opt;
+    if (poly.length < 3) return this;
+    // Which way the outline is wound decides which way the walls face, and it
+    // is easy to write one the other way round without noticing — the shape is
+    // identical, only inside out. Normalise to counter-clockwise.
+    let area2 = 0;
+    for (let i = 0; i < poly.length; i++) {
+      const [x0, z0] = poly[i], [x1, z1] = poly[(i + 1) % poly.length];
+      area2 += x0 * z1 - x1 * z0;
+    }
+    if (area2 < 0) poly = poly.slice().reverse();
     const pts = inset ? insetPoly(poly, inset) : poly;
     if (pts.length < 3) return this;
     const lo = pts.map(([x, z]) => new THREE.Vector3(x, y0, z));
     const hi = pts.map(([x, z]) => new THREE.Vector3(x, y0 + h, z));
     const tri = triangulate(pts);
-    if (capBottom) for (const [a, b, c] of tri) this.tri(lo[a], lo[c], lo[b], [shadeBottom, shadeBottom, shadeBottom]);
-    if (capTop) for (const [a, b, c] of tri) this.tri(hi[a], hi[b], hi[c], [1.08, 1.08, 1.08]);
+    if (capBottom) for (const [a, b, c] of tri) this.tri(lo[a], lo[b], lo[c], [shadeBottom, shadeBottom, shadeBottom]);
+    if (capTop) for (const [a, b, c] of tri) this.tri(hi[a], hi[c], hi[b], [1.08, 1.08, 1.08]);
     for (let i = 0; i < pts.length; i++) {
       const j = (i + 1) % pts.length;
-      this.quad(lo[i], lo[j], hi[j], hi[i], [0.82, 0.82, 1.0, 1.0]);
+      this.quad(lo[j], lo[i], hi[i], hi[j], [0.82, 0.82, 1.0, 1.0]);
     }
     return this;
   }

@@ -194,7 +194,7 @@ def('windChimes', { name: 'Wind chimes', cat: 'decor', slot: 'edge', fit: 'free'
     mb.push(); mb.translate(0, top, 0); mb.cylinder(0.02, 0.10, 4); mb.pop();
     mb.zoneOf(0);
     mb.push(); mb.translate(0, top - 0.12, 0);
-    mb.lathe([[0.20, 0], [0.21, -0.03], [0.18, -0.06]], 9, { closeTop: true });
+    mb.lathe([[0.20, 0], [0.21, -0.03], [0.18, -0.06]], 9, { closeTop: true, closeBottom: true });
     mb.pop();
     mb.zoneOf(2);
     for (let i = 0; i < 5; i++) {
@@ -323,7 +323,8 @@ def('cafeSet', { name: 'Café table and chairs', cat: 'decor', slot: 'cell', fit
     mb.lathe([[0.26, 0], [0.24, 0.03], [0.06, 0.08], [0.05, 0.66]], 8, { closeBottom: true });
     mb.zoneOf(1);
     mb.push(); mb.translate(0, 0.66, 0);
-    mb.lathe([[0.05, 0], [0.42, 0.02], [0.44, 0.05], [0.42, 0.07], [0.05, 0.075]], 12);
+    mb.lathe([[0.05, 0], [0.42, 0.02], [0.44, 0.05], [0.42, 0.07], [0.05, 0.075]], 12,
+      { closeTop: true, closeBottom: true });
     mb.pop();
     // two chairs
     for (const [ax, az, rot] of [[0.78, 0.10, -0.3], [-0.72, -0.22, 2.9]]) {
@@ -338,7 +339,8 @@ def('cafeSet', { name: 'Café table and chairs', cat: 'decor', slot: 'cell', fit
       }
       mb.zoneOf(1);
       mb.push(); mb.translate(0, 0.42, 0);
-      mb.lathe([[0.24, 0], [0.25, 0.02], [0.23, 0.045]], 10);
+      mb.lathe([[0.24, 0], [0.25, 0.02], [0.23, 0.045]], 10,
+        { closeTop: true, closeBottom: true });
       mb.pop();
       mb.zoneOf(0);
       // curved bistro back
@@ -874,7 +876,8 @@ def('goldenMaple', { name: 'Golden maple', cat: 'prestige', slot: 'cell', fit: '
   earned: 'master-builder', zones: ['Leaves', 'Trunk', 'Detail'], tags: 'prestige tree maple earned gold' },
   (mb) => {
     mb.zoneOf(1);
-    mb.lathe([[0.30, 0], [0.19, 0.24], [0.15, 1.10], [0.13, 1.55]], 8, { closeBottom: true });
+    mb.lathe([[0.30, 0], [0.19, 0.24], [0.15, 1.10], [0.13, 1.55]], 8,
+      { closeBottom: true, closeTop: true });
     for (let i = 0; i < 4; i++) {
       mb.push(); mb.rotateY(i * 1.6); mb.translate(0, 1.20, 0); mb.rotateZ(-0.78);
       mb.cylinder(0.07, 0.66, 5, { rTop: 0.032 });

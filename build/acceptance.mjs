@@ -180,7 +180,7 @@ const sweep = await page.evaluate(async () => {
     // geometry must actually exist
     try {
       const geom = part.span
-        ? window.__roof.roofSpanGeometry(1, 1, 'gable')
+        ? window.__spans.spanGeometry(part.id, 1, 1, part.style)
         : window.__kit.partGeometry(part.id);
       if (!geom || (geom.userData.tris === 0 && geom.getAttribute('position').count === 0)) {
         fails.push(`${part.id}: empty geometry`);
@@ -352,14 +352,16 @@ rec('Tool: Camera lock', tools.cameraLock);
 rec('Tool: Save + stamp a design', tools.designSaved && tools.designStamped);
 
 // ---------------------------------------------------------------------------
-// 3b. the roof: one continuous piece, resizable from any side
+// 3b. spans: one continuous piece, resizable from any side
 // ---------------------------------------------------------------------------
-console.log('--- roof ---');
+console.log('--- spans ---');
 const roof = await page.evaluate(() => {
   const a = window.__app;
   const { lotGrid, slotKey, parseSlot } = window.__world;
-  const { roofSpanGeometry, ROOF_STYLES } = window.__roof;
-  const out = { styles: {}, sizes: {} };
+  const { spanGeometry, spanStyles } = window.__spans;
+  const ROOF_STYLES = spanStyles('roof');
+  const roofSpanGeometry = (w, d, st) => spanGeometry('roof', w, d, st);
+  const out = { styles: {}, sizes: {}, parts: {} };
 
   // --- the mesh is watertight: every edge is shared by exactly two triangles,
   // which is the geometric definition of "no gaps or broken pieces"
@@ -388,6 +390,48 @@ const roof = await page.evaluate(() => {
   for (const [w, d] of [[1, 1], [2, 2], [6, 2], [2, 6], [8, 8]]) {
     const g = roofSpanGeometry(w, d, 'gable');
     out.sizes[`${w}x${d}`] = { tris: g.getAttribute('position').count / 3, openEdges: watertight(g).open };
+  }
+
+  // --- every span part, every style, over the whole size range ---
+  // Face winding is not checked here. It is checked exactly, by ray casting
+  // against every part and every span, in build/test-normals.mjs, which runs
+  // first in `npm test`. A weaker in-page approximation of the same thing
+  // would only add false alarms.
+  // Not every span is a closed solid (an awning is a canvas with a valance,
+  // a floor plate is a slab you stand on), so watertightness is asserted only
+  // where it is the right property. What is asserted for all of them: real
+  // geometry at every size, no degenerate or non-finite vertices, and one
+  // distinct mesh per size rather than a repeat of the 1x1.
+  for (const p of window.__kit.allParts().filter((x) => x.span)) {
+    const styles = spanStyles(p.id);
+    const rows = [];
+    let bad = 0, sizes = new Set();
+    for (const st of styles) {
+      for (const [w, d] of [[1, 1], [1, 3], [3, 1], [4, 3], [8, 8]]) {
+        const g = spanGeometry(p.id, w, d, st);
+        const pos = g && g.getAttribute('position');
+        if (!pos || pos.count < 12) { bad++; continue; }
+        let finite = true, minY = Infinity, maxY = -Infinity, spread = 0;
+        for (let i = 0; i < pos.count; i++) {
+          const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+          if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) { finite = false; break; }
+          if (y < minY) minY = y;
+          if (y > maxY) maxY = y;
+          if (Math.abs(x) > spread) spread = Math.abs(x);
+        }
+        if (!finite || maxY - minY <= 0) { bad++; continue; }
+        sizes.add(`${w}x${d}:${Math.round(spread * 100)}`);
+
+        rows.push({ st, w, d, tris: pos.count / 3 });
+      }
+    }
+    // geometry must actually track the requested width, not be one fixed mesh
+    const widths = new Set(rows.filter((r) => r.st === styles[0])
+      .map((r) => `${r.w}x${r.d}:${r.tris}`));
+    out.parts[p.id] = {
+      styles: styles.length, cases: rows.length, bad,
+      distinctSizes: sizes.size, tracksSize: widths.size > 1,
+    };
   }
 
   // --- it covers the whole building and resizes from every side ---
@@ -487,6 +531,12 @@ rec('Roof: resizes from all four sides', roof.allSidesResize,
 rec('Roof: will not shrink into nothing', roof.minSizeGuarded);
 rec('Roof: renders as a single mesh', roof.renderedAsOnePiece, roof.poolKey);
 rec('Roof: erase refunds for its whole area', roof.eraseRefundScales);
+for (const [id, r] of Object.entries(roof.parts)) {
+  rec(`Span: ${id} builds at every style and size`, r.bad === 0 && r.cases > 0,
+    `${r.styles} styles x ${r.cases / r.styles} sizes, ${r.bad} bad`);
+  rec(`Span: ${id} geometry tracks the size asked for`, r.tracksSize,
+    `${r.distinctSizes} distinct meshes`);
+}
 
 // ---------------------------------------------------------------------------
 // 4. economy round trip

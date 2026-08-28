@@ -19,7 +19,7 @@
 import * as THREE from 'three';
 import { MeshBuilder, roundRect, blob } from './mesh.js';
 import { CONFIG } from '../core/config.js';
-import { roofSpanGeometry } from './roof.js';
+import { spanGeometry } from './spans.js';
 
 export const U = CONFIG.grid.unit;          // one module
 const WT = CONFIG.grid.wallThickness;
@@ -52,6 +52,8 @@ function def(id, meta, build) {
     earned: meta.earned || null,
     span: !!meta.span,
     spanDefault: meta.spanDefault || [2, 2],
+    // whether placing it should immediately cover the building below
+    autoFit: !!meta.autoFit,
     style: meta.style || null,
     tags: meta.tags || '',
     build,
@@ -64,6 +66,28 @@ function def(id, meta, build) {
 
 export function getPart(id) { return REG.get(id); }
 export function allParts() { return ORDER.slice(); }
+
+/**
+ * A span part's catalogue thumbnail and drag ghost.
+ *
+ * The real geometry is generated per size by the span registry, so rather than
+ * model the part twice this copies one representative size straight into the
+ * builder. What you see in the drawer is the thing you get.
+ */
+function spanThumb(id, cols, rows, style) {
+  return (mb) => {
+    const g = spanGeometry(id, cols, rows, style);
+    if (!g) return;
+    const pos = g.getAttribute('position'), nrm = g.getAttribute('normal');
+    const zone = g.getAttribute('zone'), sh = g.getAttribute('shade');
+    for (let i = 0; i < pos.count; i++) {
+      mb.pos.push(pos.getX(i), pos.getY(i), pos.getZ(i));
+      mb.nrm.push(nrm.getX(i), nrm.getY(i), nrm.getZ(i));
+      mb.zone.push(zone.getX(i)); mb.shade.push(sh.getX(i));
+      mb.seed.push(0); mb.tone.push(0.5);
+    }
+  };
+}
 
 /** Geometry is built once, on first use, then cached. */
 export function partGeometry(id) {
@@ -483,23 +507,38 @@ def('slab', { name: 'Slab', cat: 'floors', slot: 'cell', cost: 7, zones: ['Slab'
  * One piece covering a whole rectangle of modules, not a tile you repeat — so
  * it never has seams or gaps however big the building is. Drag any side to
  * resize it, or use "Fit to building" to snap it to the walls underneath.
- * Geometry is generated per size in kit/roof.js.
+ * Geometry is generated per size in kit/roof.js, via the span registry.
  */
 def('roof', { name: 'Roof', cat: 'floors', slot: 'cell', fit: 'span', cost: 13, span: true,
-  spanDefault: [2, 2], style: 'gable',
+  spanDefault: [2, 2], style: 'gable', autoFit: true,
   zones: ['Roof', 'Trim', 'Detail'], tags: 'roof gable hip shed pitch cover whole building resize' },
-  (mb) => {
-    // the catalogue thumbnail and the drag ghost use a default 2x2 gable
-    const g = roofSpanGeometry(2, 2, 'gable');
-    const pos = g.getAttribute('position'), nrm = g.getAttribute('normal');
-    const zone = g.getAttribute('zone'), sh = g.getAttribute('shade');
-    for (let i = 0; i < pos.count; i++) {
-      mb.pos.push(pos.getX(i), pos.getY(i), pos.getZ(i));
-      mb.nrm.push(nrm.getX(i), nrm.getY(i), nrm.getZ(i));
-      mb.zone.push(zone.getX(i)); mb.shade.push(sh.getX(i));
-      mb.seed.push(0); mb.tone.push(0.5);
-    }
-  });
+  spanThumb('roof', 2, 2, 'gable'));
+
+/**
+ * The other spans.
+ *
+ * Same rule as the roof: anything wide and continuous is generated whole at
+ * the size you drag it to, because tiling it shows every joint. A deck laid a
+ * module at a time has its boards stop and restart at each seam; laid as a
+ * span the boards run the full length.
+ */
+def('awning', { name: 'Awning', cat: 'facade', slot: 'cell', fit: 'span', cost: 9, span: true,
+  spanDefault: [2, 1], style: 'scallop',
+  zones: ['Canvas', 'Stripe', 'Frame'],
+  tags: 'awning canopy shop shade stripe scallop shopfront span resize' },
+  spanThumb('awning', 2, 1, 'scallop'));
+
+def('terrace', { name: 'Terrace', cat: 'floors', slot: 'cell', fit: 'span', cost: 10, span: true,
+  spanDefault: [2, 2], style: 'plank',
+  zones: ['Surface', 'Fascia', 'Frame'],
+  tags: 'terrace deck patio boards paving lawn garden raised span resize' },
+  spanThumb('terrace', 2, 2, 'plank'));
+
+def('floorPlate', { name: 'Floor plate', cat: 'floors', slot: 'cell', fit: 'span', cost: 6, span: true,
+  spanDefault: [3, 3], style: 'board', autoFit: true,
+  zones: ['Floor', 'Edge', 'Inlay'],
+  tags: 'floor plate storey boards tiles concrete whole room span resize' },
+  spanThumb('floorPlate', 3, 3, 'board'));
 
 
 def('roofFlat', { name: 'Flat roof deck', cat: 'floors', slot: 'cell', cost: 11, zones: ['Deck', 'Coping', 'Detail'], tags: 'roof flat deck' },
@@ -1112,7 +1151,8 @@ def('pathPaving', { name: 'Plain paving', cat: 'paths', slot: 'cell', cost: 4, z
 def('treeRound', { name: 'Rounded tree', cat: 'plants', slot: 'cell', fit: 'free', cost: 14, vary: true, zones: ['Leaves', 'Trunk', 'Detail'], tags: 'tree round leafy' },
   (mb) => {
     mb.zoneOf(1);
-    mb.lathe([[0.24, 0], [0.15, 0.20], [0.13, 1.10], [0.11, 1.55]], 7, { closeBottom: true });
+    mb.lathe([[0.24, 0], [0.15, 0.20], [0.13, 1.10], [0.11, 1.55]], 7,
+      { closeBottom: true, closeTop: true });
     for (let i = 0; i < 3; i++) {
       mb.push(); mb.rotateY(i * 2.1); mb.translate(0, 1.15, 0); mb.rotateZ(-0.7);
       mb.cylinder(0.055, 0.42, 4, { rTop: 0.03 });
@@ -1127,7 +1167,8 @@ def('treeRound', { name: 'Rounded tree', cat: 'plants', slot: 'cell', fit: 'free
 def('treeSlender', { name: 'Slender tree', cat: 'plants', slot: 'cell', fit: 'free', cost: 14, vary: true, zones: ['Leaves', 'Trunk', 'Detail'], tags: 'tree slender tall poplar' },
   (mb) => {
     mb.zoneOf(1);
-    mb.lathe([[0.17, 0], [0.11, 0.20], [0.085, 1.6], [0.07, 2.2]], 6, { closeBottom: true });
+    mb.lathe([[0.17, 0], [0.11, 0.20], [0.085, 1.6], [0.07, 2.2]], 6,
+      { closeBottom: true, closeTop: true });
     mb.zoneOf(0);
     for (let i = 0; i < 4; i++) {
       const t = i / 3;
@@ -1141,7 +1182,8 @@ def('treeSlender', { name: 'Slender tree', cat: 'plants', slot: 'cell', fit: 'fr
 def('treeBlossom', { name: 'Blossom tree', cat: 'plants', slot: 'cell', fit: 'free', cost: 22, level: 2, vary: true, zones: ['Blossom', 'Trunk', 'Petals'], tags: 'tree blossom cherry spring pink' },
   (mb) => {
     mb.zoneOf(1);
-    mb.lathe([[0.26, 0], [0.16, 0.22], [0.13, 0.85], [0.115, 1.25]], 7, { closeBottom: true });
+    mb.lathe([[0.26, 0], [0.16, 0.22], [0.13, 0.85], [0.115, 1.25]], 7,
+      { closeBottom: true, closeTop: true });
     for (let i = 0; i < 4; i++) {
       mb.push(); mb.rotateY(i * 1.62); mb.translate(0, 0.95, 0); mb.rotateZ(-0.85);
       mb.cylinder(0.06, 0.62, 4, { rTop: 0.028 });
@@ -1171,7 +1213,8 @@ def('treeBlossom', { name: 'Blossom tree', cat: 'plants', slot: 'cell', fit: 'fr
 def('treeFruit', { name: 'Fruit tree', cat: 'plants', slot: 'cell', fit: 'free', cost: 24, level: 3, vary: true, zones: ['Leaves', 'Trunk', 'Fruit'], tags: 'tree fruit apple orchard' },
   (mb) => {
     mb.zoneOf(1);
-    mb.lathe([[0.24, 0], [0.15, 0.20], [0.13, 0.95]], 7, { closeBottom: true });
+    mb.lathe([[0.24, 0], [0.15, 0.20], [0.13, 0.95]], 7,
+      { closeBottom: true, closeTop: true });
     for (let i = 0; i < 3; i++) {
       mb.push(); mb.rotateY(i * 2.1 + 0.4); mb.translate(0, 0.82, 0); mb.rotateZ(-0.75);
       mb.cylinder(0.055, 0.5, 4, { rTop: 0.03 });
@@ -1209,7 +1252,8 @@ def('evergreen', { name: 'Evergreen', cat: 'plants', slot: 'cell', fit: 'free', 
 def('treeBare', { name: 'Bare tree', cat: 'plants', slot: 'cell', fit: 'free', cost: 12, vary: true, zones: ['Branches', 'Trunk', 'Detail'], tags: 'tree bare winter branches' },
   (mb) => {
     mb.zoneOf(1);
-    mb.lathe([[0.26, 0], [0.16, 0.24], [0.12, 1.30], [0.09, 1.75]], 7, { closeBottom: true });
+    mb.lathe([[0.26, 0], [0.16, 0.24], [0.12, 1.30], [0.09, 1.75]], 7,
+      { closeBottom: true, closeTop: true });
     mb.zoneOf(0);
     const branch = (x, y, z, ang, tilt, len, r, depth) => {
       mb.push();

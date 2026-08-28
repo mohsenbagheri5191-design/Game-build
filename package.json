@@ -6,10 +6,11 @@
     "bake": "node build/bake.mjs",
     "build": "node build/bake.mjs && node build/bundle.mjs --entry src/main.js --out dist/index.html",
     "dev": "node build/bake.mjs && node build/bundle.mjs --entry src/main.js --out dist/index.html --dev",
-    "test": "node build/acceptance.mjs dist/index.html dist/acceptance",
+    "test": "node build/test-normals.mjs && node build/acceptance.mjs dist/index.html dist/acceptance",
     "test:osm": "node build/test-osm-ingest.mjs",
     "shots": "node build/showcase.mjs dist/index.html dist/shots",
-    "fetch-osm": "node build/fetch-osm.mjs"
+    "fetch-osm": "node build/fetch-osm.mjs",
+    "test:normals": "node build/test-normals.mjs"
   },
   "repository": {
     "type": "git",
