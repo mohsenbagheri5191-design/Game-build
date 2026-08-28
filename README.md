@@ -89,7 +89,7 @@ src/
 | `npm run bake` | Rebuild the city binary from `build/toronto-source.mjs` |
 | `npm run build` | Bake, then bundle to `dist/index.html` (minified) |
 | `npm run dev` | Same, unminified |
-| `npm run test` | All three suites: geometry, icons, then the checklist |
+| `npm run test` | All three suites: geometry (33), icons (4), checklist (128) |
 | `npm run test:normals` | Face winding across every primitive, part and span |
 | `npm run test:icons` | No emoji, no cold greys, every icon exists |
 | `npm run shots:ui` | Render every screen to `dist/ui/` for looking at |

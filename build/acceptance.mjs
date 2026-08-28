@@ -1262,6 +1262,210 @@ rec('Touch: a finger lost mid-gesture does not wedge the camera',
   gestures.recovers.cleared && gestures.recovers.stillWorks && gestures.recovers.finite);
 
 // ---------------------------------------------------------------------------
+// 7b2. a real playthrough, driven only by taps on the screen
+// ---------------------------------------------------------------------------
+/*
+ * Everything else in this file reaches into the app and calls its functions.
+ * That is how a full-screen invisible overlay sat in front of the world for
+ * the entire project without one of 120 checks noticing: every one of them
+ * went around the interface rather than through it.
+ *
+ * This goes through it. It finds each control by asking the document what is
+ * at that point on screen — the way a finger does — and refuses to touch
+ * anything it cannot reach. Open the game, get into build mode, open the
+ * catalogue, pick a part, drag it onto the lot, and check something is there.
+ */
+console.log('--- playing it with taps only ---');
+await boot('t=10&q=medium');
+const played = await page.evaluate(async () => {
+  const a = window.__app;
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const steps = [];
+
+  const describe = (n) => (!n ? 'nothing'
+    : n.getAttribute?.('aria-label') || (typeof n.className === 'string' && n.className)
+      || n.tagName || 'something');
+
+  // Tap whatever is actually on top at this point. If the thing we meant to
+  // hit is not the thing under the finger, that is the failure.
+  const tapAt = async (x, y, want) => {
+    const hit = document.elementFromPoint(x, y);
+    // elementFromPoint returns null for a point outside the viewport. Say so —
+    // a bare "undefined" here cost an hour of reading the wrong code.
+    if (!hit) {
+      await wait(200);
+      return { reached: false,
+        got: `nothing at (${Math.round(x)},${Math.round(y)}) — the viewport is ${window.innerWidth}x${window.innerHeight}` };
+    }
+    const reached = want ? (hit === want || want.contains(hit) || hit.contains(want)) : true;
+    if (reached) {
+      for (const t of ['pointerdown', 'pointerup', 'click']) {
+        hit.dispatchEvent(new PointerEvent(t, {
+          pointerId: 1, pointerType: 'touch', isPrimary: true,
+          clientX: x, clientY: y, bubbles: true, cancelable: true,
+        }));
+      }
+    }
+    await wait(420);
+    return { reached, got: describe(hit) };
+  };
+
+  // Wait for a control to stop moving before aiming at it. Sheets and the
+  // build bar slide in over ~320ms on an overshooting curve, so a rect read
+  // the instant they open can be below the fold — and then the tap lands on
+  // nothing. Two identical on-screen reads in a row means it has settled.
+  const settled = async (node) => {
+    let last = null;
+    for (let i = 0; i < 80; i++) {
+      const r = node.getBoundingClientRect();
+      const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+      const inView = r.width > 1 && r.height > 1
+        && cx >= 0 && cx <= window.innerWidth && cy >= 0 && cy <= window.innerHeight;
+      const key = `${Math.round(r.left)},${Math.round(r.top)},${Math.round(r.width)},${Math.round(r.height)}`;
+      if (inView && key === last) return true;
+      last = inView ? key : null;
+      await wait(40);
+    }
+    return false;
+  };
+
+  // Find a control, wait for it to hold still, then tap where it actually is.
+  const tapOn = async (what, sel, pick) => {
+    let node = null;
+    for (let i = 0; i < 40 && !node; i++) {
+      const found = [...a.hudRoot.querySelectorAll(sel)];
+      node = pick ? found.find(pick) : found[0];
+      if (!node) await wait(80);
+    }
+    if (!node) {
+      steps.push({ what, reached: false, got: `no ${sel} in the interface` });
+      return null;
+    }
+    if (!await settled(node)) {
+      const r = node.getBoundingClientRect();
+      steps.push({ what, reached: false,
+        got: `${sel} never came to rest on screen (last seen at ${Math.round(r.left)},${Math.round(r.top)} ${Math.round(r.width)}x${Math.round(r.height)})` });
+      return node;
+    }
+    const r = node.getBoundingClientRect();
+    steps.push({ what, ...await tapAt(r.left + r.width / 2, r.top + r.height / 2, node) });
+    return node;
+  };
+
+  // --- the walkthrough is up on a fresh save; dismiss it by tapping Skip ---
+  a.state.s.tutorialDone = false;
+  a.startTutorial(true);
+  await wait(340);
+  await tapOn('skip the walkthrough', '.coach button', (b) => /Skip/.test(b.textContent));
+
+  // --- into build mode, by tapping the button ----------------------------
+  await tapOn('tap Build', '[aria-label="Build mode"]');
+  await wait(700);
+  const barOpen = a.bar.open;
+
+  // --- open the catalogue -------------------------------------------------
+  await tapOn('tap Catalogue', '#buildbar .held .btn');
+  await wait(500);
+  const drawerOpen = a.sheets.isOpen('drawer');
+
+  // --- pick the first part that is not locked -----------------------------
+  await tapOn('tap a part', '.cat-item', (n) => !n.classList.contains('locked'));
+  await wait(450);
+  const held = a.ui.heldPart;
+
+  // --- close the sheet and drag across the lot ----------------------------
+  // Close it the way a player does, then wait until the world is genuinely
+  // touchable again. A sheet that keeps swallowing touches after it has slid
+  // away is the same bug as the invisible scrim, and polling for the canvas
+  // is the only thing that would notice.
+  // Picking a part closes the drawer on its own; only reach for Close if
+  // something is still up.
+  if (a.hudRoot.querySelector('.sheet.open')) {
+    await tapOn('close the catalogue', '.sheet.open [aria-label="Close"]');
+  }
+  let stillOver = 'nothing';
+  for (let i = 0; i < 40; i++) {
+    const mid = document.elementFromPoint(window.innerWidth / 2, window.innerHeight * 0.42);
+    if (mid && mid.tagName === 'CANVAS') { stillOver = 'nothing'; break; }
+    stillOver = describe(mid);
+    await wait(60);
+  }
+  const lot = a.state.s.lots[0];
+  const before = Object.keys(lot.parts).length;
+
+  // Walk the lot in screen space and keep only the cells a finger could
+  // actually land on — the build bar covers the bottom of the screen and the
+  // top bar covers the top, so the middle of the lot is not always free. A
+  // player picks somewhere they can see; so does this.
+  const { lotGrid } = window.__world;
+  const g = lotGrid(a.city.parcelById(lot.parcelId));
+  const free = [];
+  const blockedBy = {};
+  for (let r = 0; r < g.rows; r++) {
+    for (let c = 0; c < g.cols; c++) {
+      const s = a.toScreen(g.ou + (c + 0.5) * 2.5, g.ov + (r + 0.5) * 2.5, 0);
+      if (!s) { blockedBy['off camera'] = (blockedBy['off camera'] || 0) + 1; continue; }
+      const under = document.elementFromPoint(s.x, s.y);
+      if (under && under.tagName === 'CANVAS') free.push({ c, r, x: s.x, y: s.y, under });
+      else { const k = describe(under); blockedBy[k] = (blockedBy[k] || 0) + 1; }
+    }
+  }
+
+  // Drag between the two reachable cells that are furthest apart, so the
+  // stroke crosses as much open ground as it can.
+  let p0 = null, p1 = null, span = -1;
+  for (const A of free) for (const B of free) {
+    const d = Math.hypot(A.x - B.x, A.y - B.y);
+    if (d > span) { span = d; p0 = A; p1 = B; }
+  }
+
+  const dragReached = !!p0 && free.length > 0;
+  if (dragReached) {
+    const under = p0.under;
+    const send = (t, x, y) => under.dispatchEvent(new PointerEvent(t, {
+      pointerId: 7, pointerType: 'touch', isPrimary: true,
+      clientX: x, clientY: y, bubbles: true, cancelable: true,
+    }));
+    send('pointerdown', p0.x, p0.y);
+    for (let i = 1; i <= 12; i++) {
+      send('pointermove', p0.x + ((p1.x - p0.x) * i) / 12, p0.y + ((p1.y - p0.y) * i) / 12);
+      await wait(24);
+    }
+    send('pointerup', p1.x, p1.y);
+  }
+  await wait(500);
+  const after = Object.keys(lot.parts).length;
+
+  return {
+    steps, barOpen, drawerOpen, held, dragReached, stillOver,
+    reachableCells: free.length, lotCells: g.cols * g.rows,
+    blockedBy: Object.entries(blockedBy).map(([k, v]) => `${v}x ${k}`).join(', '),
+    placed: after - before, before, after,
+    allReached: steps.every((s) => s.reached),
+  };
+});
+rec('Playthrough: every control is reachable by tapping it', played.allReached,
+  played.steps.filter((s) => !s.reached).map((s) => `${s.what} hit ${s.got}`).join('; ')
+  || played.steps.map((s) => s.what).join(' -> '));
+rec('Playthrough: tapping Build opens the build bar', played.barOpen);
+rec('Playthrough: tapping Catalogue opens it', played.drawerOpen);
+rec('Playthrough: tapping a part picks it up', !!played.held, played.held || 'nothing held');
+rec('Playthrough: a closed sheet stops swallowing touches',
+  played.stillOver === 'nothing',
+  played.stillOver === 'nothing' ? 'the world is touchable again'
+    : `${played.stillOver} is still over the middle of the screen`);
+rec('Playthrough: the lot is reachable by finger, not hidden behind the interface',
+  played.reachableCells > 0,
+  `${played.reachableCells}/${played.lotCells} cells a finger can land on`
+  + (played.blockedBy ? `; blocked: ${played.blockedBy}` : ''));
+rec('Playthrough: dragging on the lot places parts',
+  played.dragReached && played.placed > 0,
+  played.dragReached ? `${played.placed} placed (${played.before} -> ${played.after})`
+    : 'the drag never reached the canvas');
+
+await boot();
+
+// ---------------------------------------------------------------------------
 // 7c. weather reaches the world, not just the particle cloud
 // ---------------------------------------------------------------------------
 console.log('--- weather ---');

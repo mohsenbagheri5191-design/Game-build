@@ -9,7 +9,7 @@ shipped `dist/index.html` in a real browser. Machine-readable output in
 `npm run shots:ui` renders every screen to `dist/ui/` for looking at, which is
 how the visual defects in this build were actually found — see 3a.
 
-## Automated — 121 / 121, plus a 33-check geometry audit and a 4-check icon audit
+## Automated — 128 / 128, plus a 33-check geometry audit and a 4-check icon audit
 
 ### 1. Every screen opens and closes without error
 
@@ -175,6 +175,44 @@ Touch: a finger lost mid-gesture does not wedge the camera
 They failed nine of eleven on the first run, on two real bugs — both described
 under *What is weak* below. Every check also asserts that no value in the
 camera has gone non-finite.
+
+### 3b4. One playthrough that goes *through* the interface
+
+Every other check in this file reaches into the app and calls its functions.
+That is precisely how a full-screen invisible overlay sat in front of the world
+for the entire project without one of 120 checks noticing: all of them went
+around the interface rather than through it. Even the eleven gesture checks
+above dispatch their events straight at the canvas element, which skips
+hit-testing altogether — the one thing the scrim bug broke.
+
+This section refuses to do that. It finds each control, waits for it to stop
+moving, asks `document.elementFromPoint` what is actually under that pixel, and
+taps only if the thing it meant to hit is the thing a finger would meet. If a
+control is covered, the tap does not happen and the check fails.
+
+```
+Playthrough: every control is reachable by tapping it
+              skip the walkthrough -> tap Build -> tap Catalogue -> tap a part
+Playthrough: tapping Build opens the build bar
+Playthrough: tapping Catalogue opens it
+Playthrough: tapping a part picks it up              floor
+Playthrough: a closed sheet stops swallowing touches
+Playthrough: the lot is reachable by finger          70/84 cells
+Playthrough: dragging on the lot places parts        16 placed (10 -> 26)
+```
+
+The last two are the ones worth having. Rather than aiming at the middle of the
+lot and hoping, the test walks all 84 cells, keeps only the ones where the
+canvas is genuinely the topmost element, and drags between the two survivors
+furthest apart. Fourteen cells are behind the build bar; that is the bar doing
+its job, and the check would fail outright if the number ever reached 84.
+
+Writing it found three bugs in itself and none in the app, which is its own
+result: the timing had to learn that sheets slide in on an overshooting curve,
+so a rect measured the instant one opens is still below the fold. The fix is to
+wait for two identical on-screen measurements before aiming. It also found that
+picking a part already closes the drawer — behaviour I had not noticed in six
+weeks of calling the function directly.
 
 ### 3c. Every face points the right way
 
@@ -515,6 +553,16 @@ The lesson is not "add more tests". It is that a thing with a picture and a
 touch surface has to be opened and looked at and prodded, on the real first-run
 path, before it is called finished. `npm run shots:ui` and the reachability
 check exist now, but they exist because I shipped without them.
+
+There is a sharper version of the same lesson underneath. The 120 checks that
+missed the overlay were not lazy checks — they were thorough ones aimed at the
+wrong layer. Each called an app function and asserted on app state, so each
+proved the game worked *given that a finger could reach it*, which was the
+single thing that was false. The playthrough in 3b4 is the correction: it asks
+the document what is under the pixel before it touches anything, so "covered"
+is a failure rather than an invisible assumption. That one habit — go through
+the surface, not around it — would have caught the bug that made the whole
+build unusable, on day one, for the cost of about forty lines.
 
 **6. The touch camera shipped with two bugs that no screenshot could show.**
 `setPointerCapture` throws whenever the pointer is no longer active, and it was
