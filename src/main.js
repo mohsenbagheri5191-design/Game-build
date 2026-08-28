@@ -701,7 +701,9 @@ class App {
     this.mode = 'browse';
     this.bar.show(false);
     this.ghost.hide();
-    this.overlay.clear();
+    this.ui.selectedSlot = null;
+    this.ui.storey = 0;
+    this.refreshOverlay();
     this.hud.setHint('');
     this.cam.locked = false;
   }
@@ -765,7 +767,12 @@ class App {
 
   refreshOverlay() {
     const parcel = this.activeLot ? this.city.parcelById(this.activeLot.parcelId) : null;
-    this.overlay.set(this.mode === 'build' ? parcel : null, this.ui.storey, this.ui.showGrid);
+    // The boundary stays up in browse mode. Tapping "go to my site" and landing
+    // on an unmarked patch of grey is not an answer to "which one is mine" —
+    // the outline is. Only the slot grid is build-mode-only, because that is
+    // the part that is about editing rather than about finding the place.
+    this.overlay.set(this.mode === 'visit' ? null : parcel,
+      this.ui.storey, this.mode === 'build' && this.ui.showGrid);
     this.spanHandles = [];
     if (this.ui.selectedSlot && parcel) {
       const rec = this.activeLot?.parts?.[this.ui.selectedSlot] || null;

@@ -196,7 +196,6 @@ export function openWallet(app) {
   app.sheets.open('wallet', {
     title: 'Wallet',
     sub: 'Every credit in and out',
-    full: true,
     render: (body) => {
       const st = app.state;
       body.append(el('div.card', {},
@@ -259,7 +258,6 @@ export function openMyLots(app) {
   app.sheets.open('lots', {
     title: 'My lots',
     sub: `${app.state.s.lots.length} of ${CONFIG.lots.maxHeld} held`,
-    full: true,
     render: (body) => {
       const lots = app.world.ownedLots();
       if (!lots.length) {
@@ -428,7 +426,6 @@ function titleCase(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
 export function openProfile(app) {
   app.sheets.open('profile', {
     title: 'Profile',
-    full: true,
     render: (body) => {
       const st = app.state;
       const p = st.s.profile;
@@ -483,7 +480,6 @@ export function openAvatarEditor(app) {
   app.sheets.open('avatar', {
     title: 'Avatar',
     sub: 'Every part is yours to colour',
-    full: true,
     onClose: () => { view?.dispose(); view = null; },
     render: (body) => {
       const av = app.state.s.profile.avatar;
@@ -540,7 +536,6 @@ export function openDiscover(app) {
   app.sheets.open('discover', {
     title: 'Discover',
     sub: 'Towns worth a look',
-    full: true,
     render: (body) => {
       const list = [...app.neighbours].sort((a, b) => b.partCount - a.partCount);
       for (const nb of list) {
@@ -621,7 +616,6 @@ export function openVisit(app, nb) {
 export function openFriends(app) {
   app.sheets.open('friends', {
     title: 'Friends',
-    full: true,
     render: (body) => {
       const friends = app.state.s.social.friends;
       const friendSet = new Set(friends);
@@ -675,7 +669,6 @@ export function openMessages(app, focusId = null) {
   let open = focusId;
   app.sheets.open('messages', {
     title: 'Messages',
-    full: true,
     render: (body) => {
       const threads = app.state.s.social.threads;
       if (open) {
@@ -764,7 +757,6 @@ export function openShop(app) {
   app.sheets.open('shop', {
     title: 'Shop',
     sub: 'Cosmetics only — nothing here affects gameplay',
-    full: true,
     render: (body) => {
       const owned = (app.state.s.shopOwned ||= []);
       body.append(el('div.card', {},
@@ -776,7 +768,9 @@ export function openShop(app) {
           el('div.txt', {},
             el('div.t1', { text: it.name }),
             el('div.t2', { text: `${it.kind} · ${it.desc}` })),
-          el('span.chip', { text: 'Cosmetic' }),
+          // No "Cosmetic" chip. The sheet's subtitle and the card above both
+          // say so already, and repeating it on all eight rows cost the width
+          // that the descriptions needed.
           has
             ? el('span.chip.good', { text: 'Owned' })
             : tap(el('button.btn.sm.primary', { text: `${it.price} cr` }), () => {
@@ -801,7 +795,6 @@ export function openCivic(app) {
   app.sheets.open('civic', {
     title: 'Civic board',
     sub: 'Shared projects on real Toronto streets',
-    full: true,
     render: (body) => {
       const locked = app.state.level < CONFIG.economy.civicUnlockLevel;
       if (locked) {
@@ -856,7 +849,6 @@ export function openPlaces(app) {
   app.sheets.open('places', {
     title: 'Map & places',
     sub: 'Search every street and named place',
-    full: true,
     render: (body) => {
       const results = el('div');
       const search = el('input.search', {
@@ -906,7 +898,6 @@ function defaultPlaces(app) {
 export function openSettings(app) {
   app.sheets.open('settings', {
     title: 'Settings',
-    full: true,
     render: (body) => {
       const s = app.state.settings;
       const set = (k) => (v) => app.applySetting(k, v);
@@ -1038,7 +1029,6 @@ export function openMilestones(app) {
   app.sheets.open('milestones', {
     title: 'Milestones',
     sub: `${app.state.s.milestones.filter((m) => MILESTONES.some((x) => x.id === m)).length} of ${MILESTONES.length} unlocked`,
-    full: true,
     render: (body) => {
       for (const m of MILESTONES) {
         const done = app.state.s.milestones.includes(m.id);
@@ -1061,7 +1051,6 @@ export function openMilestones(app) {
 export function openHelp(app) {
   app.sheets.open('help', {
     title: 'Help',
-    full: true,
     render: (body) => {
       body.append(el('div.card', {},
         el('b', { text: 'Getting around' }),
@@ -1095,7 +1084,6 @@ export function openHelp(app) {
 export function openAbout(app) {
   app.sheets.open('about', {
     title: 'About',
-    full: true,
     render: (body) => {
       const st = app.stats();
       body.append(el('div.card', {},

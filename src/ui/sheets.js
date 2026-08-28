@@ -30,7 +30,7 @@ export class SheetHost {
    * @param id     stable id, so re-opening the same screen reuses its node
    * @param render (body, api) => void — fills the sheet
    */
-  open(id, { title, sub, full = false, render, footer, onClose } = {}) {
+  open(id, { title, sub, render, footer, onClose } = {}) {
     if (this.stack.includes(id)) { this.refresh(id); return this.sheets.get(id); }
 
     let rec = this.sheets.get(id);
@@ -38,14 +38,13 @@ export class SheetHost {
       const body = el('div.sheet-body');
       const head = el('div.sheet-head');
       const foot = el('div.sheet-foot');
-      const node = el(`div.sheet${full ? '.full' : ''}`, { role: 'dialog', 'aria-modal': 'true', 'aria-label': title || id },
+      const node = el('div.sheet', { role: 'dialog', 'aria-modal': 'true', 'aria-label': title || id },
         el('div.sheet-grab', {}, el('i')), head, body, foot);
       rec = { id, node, head, body, foot };
       this.sheets.set(id, rec);
       this.root.append(node);
       this._bindSwipe(rec);
     }
-    rec.node.classList.toggle('full', !!full);
     rec.render = render;
     rec.onClose = onClose;
     rec.title = title;

@@ -83,7 +83,7 @@ export const CONFIG = {
     minDist: 11,
     maxDist: 3400,
     homeDist: 46,
-    homePitch: 0.62,
+    homePitch: 0.75,
     // The establishing shot on a first run. Framing the starter lot at home
     // distance put a new player 46 m from a 17 m wall, looking at a blank
     // grey slab and an empty road — "this is the real downtown" over a view

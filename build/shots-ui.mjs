@@ -24,7 +24,11 @@ await p.goto('file://'+resolve('dist/index.html')+'?notut=1&t=10&q=medium',{wait
 await p.waitForFunction('window.__ready===true',{timeout:240000});
 await p.waitForTimeout(3000);
 await p.evaluate(()=>{ const a=window.__app; a.state.commit({entries:[{type:'cheat',amount:400000,note:'shots'}],apply:st=>{st.s.profile.xp=200000;}});
-  for(const m of ['founder','master-builder','civic-patron','lakeside']) if(!a.state.s.milestones.includes(m)) a.state.s.milestones.push(m); });
+  // Real milestone ids, so the unlocked state is what actually renders — the
+  // shop's title ids look like milestone ids and are not, which is how this
+  // screenshot showed fifteen locked rows under "3 of 15 unlocked".
+  for(const m of ['first-part','ten-parts','fifty-parts','upstairs','level-5']) if(!a.state.s.milestones.includes(m)) a.state.s.milestones.push(m);
+  for(const s of ['founder','lakeside']) if(!(a.state.s.shopOwned||=[]).includes(s)) a.state.s.shopOwned.push(s); });
 const screens = [
   ['wallet','openWallet'], ['lots','openMyLots'], ['profile','openProfile'],
   ['avatar','openAvatarEditor'], ['discover','openDiscover'], ['friends','openFriends'],

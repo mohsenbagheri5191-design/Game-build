@@ -317,6 +317,12 @@ const tools = await page.evaluate(async () => {
   out.gridOff = !a.overlay.gridMesh;
   a.ui.showGrid = true; a.refreshOverlay();
   out.gridOn = !!a.overlay.gridMesh;
+  // Leaving build mode keeps the boundary and drops the slot grid: the outline
+  // is how you find your lot, the grid is how you edit it.
+  a.exitBuild();
+  out.browseOutline = !!a.overlay.outlineMesh && !a.overlay.gridMesh;
+  a.enterBuild();
+  out.buildGridBack = !!a.overlay.gridMesh;
   a.ui.cameraLock = true; a.cam.locked = true;
   out.cameraLock = a.cam.locked === true;
   a.ui.cameraLock = false; a.cam.locked = false;
@@ -348,6 +354,8 @@ rec('Tool: Storey selector', tools.storey);
 rec('Tool: Undo / Redo', tools.undo && tools.redo, `history depth ${tools.undoDepth}`);
 rec('Tool: Clear (with undo)', tools.cleared && tools.clearUndone);
 rec('Tool: Grid toggle', tools.gridOff && tools.gridOn);
+rec('Your lot is outlined in browse mode, and only gridded in build mode',
+  tools.browseOutline && tools.buildGridBack);
 rec('Tool: Camera lock', tools.cameraLock);
 rec('Tool: Save + stamp a design', tools.designSaved && tools.designStamped);
 
